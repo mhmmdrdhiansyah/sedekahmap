@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* SedekahMap Brand Colors - Green/Teal Islamic Theme */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+
+  /* Brand Colors */
+  --brand-primary: #047857; /* Emerald green */
+  --brand-primary-dark: #065f46;
+  --brand-primary-light: #10b981;
+
+  --brand-secondary: #0d9488; /* Teal */
+  --brand-secondary-dark: #0f766e;
+  --brand-secondary-light: #14b8a6;
+
+  /* Accent Colors */
+  --accent-gold: #d97706; /* Gold/Amber for Islamic theme */
+  --accent-gold-light: #f59e0b;
+
+  /* Semantic Colors */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--brand-primary);
+  --color-primary-dark: var(--brand-primary-dark);
+  --color-primary-light: var(--brand-primary-light);
+  --color-secondary: var(--brand-secondary);
+  --color-secondary-dark: var(--brand-secondary-dark);
+  --color-secondary-light: var(--brand-secondary-light);
+  --color-accent: var(--accent-gold);
+  --color-accent-light: var(--accent-gold-light);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+}

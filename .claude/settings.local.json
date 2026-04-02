@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --version)",
+      "Bash(npm list:*)",
+      "mcp__context7__query-docs",
+      "Bash(npx:*)",
+      "Bash(mv:*)",
+      "Bash(npm run:*)",
+      "Bash(pkill -f \"next dev\")"
+    ]
+  }
+}
