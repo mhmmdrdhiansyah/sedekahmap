@@ -1,9 +1,14 @@
 import Image from "next/image";
+import PublicMapWrapper from "@/components/map/PublicMapWrapper";
 
 export default function Home() {
   return (
     <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
       <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+        <div className="w-full mb-8">
+          <h2 className="text-xl font-semibold mb-4 text-black dark:text-zinc-50">Peta SedekahMap</h2>
+          <PublicMapWrapper />
+        </div>
         <Image
           className="dark:invert"
           src="/next.svg"
