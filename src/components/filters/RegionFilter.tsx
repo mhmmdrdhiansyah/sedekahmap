@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { API_ROUTES, REGION_LEVELS } from "@/lib/constants";
 
 export interface Region {
   code: string;
@@ -20,6 +19,9 @@ export interface RegionSelection {
 interface RegionFilterProps {
   onRegionChange?: (region: RegionSelection) => void;
 }
+
+// API Constants
+const WILAYAH_API_BASE = "https://wilayah.id/api";
 
 export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Data states
@@ -46,7 +48,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch regencies when province changes
   useEffect(() => {
     if (selectedProvince) {
-      fetchRegions(REGION_LEVELS.KABUPATEN, selectedProvince, setRegencies);
+      fetchWilayahData("regencies", selectedProvince, setRegencies, 1);
     } else {
       setRegencies([]);
     }
@@ -60,7 +62,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch districts when regency changes
   useEffect(() => {
     if (selectedRegency) {
-      fetchRegions(REGION_LEVELS.KECAMATAN, selectedRegency, setDistricts);
+      fetchWilayahData("districts", selectedRegency, setDistricts, 2);
     } else {
       setDistricts([]);
     }
@@ -72,7 +74,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch villages when district changes
   useEffect(() => {
     if (selectedDistrict) {
-      fetchRegions(REGION_LEVELS.DESA, selectedDistrict, setVillages);
+      fetchWilayahData("villages", selectedDistrict, setVillages, 3);
     } else {
       setVillages([]);
     }
@@ -107,10 +109,19 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_ROUTES.PUBLIC_REGIONS}?level=${REGION_LEVELS.PROVINSI}`);
+      const response = await fetch(`${WILAYAH_API_BASE}/provinces.json`);
       if (!response.ok) throw new Error("Gagal memuat data provinsi");
       const json = await response.json();
-      setProvinces(json.data);
+
+      // Transform wilayah.id response to our Region format
+      const data: Region[] = json.data.map((item: any) => ({
+        code: item.code,
+        name: item.name,
+        level: 1,
+        parentCode: null,
+      }));
+
+      setProvinces(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
     } finally {
@@ -118,14 +129,28 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
     }
   };
 
-  const fetchRegions = async (level: number, parentCode: string, setter: (regions: Region[]) => void) => {
+  const fetchWilayahData = async (
+    type: "regencies" | "districts" | "villages",
+    parentCode: string,
+    setter: (regions: Region[]) => void,
+    level: number
+  ) => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_ROUTES.PUBLIC_REGIONS}?level=${level}&parentCode=${parentCode}`);
-      if (!response.ok) throw new Error(`Gagal memuat data wilayah level ${level}`);
+      const response = await fetch(`${WILAYAH_API_BASE}/${type}/${parentCode}.json`);
+      if (!response.ok) throw new Error(`Gagal memuat data ${type}`);
       const json = await response.json();
-      setter(json.data);
+
+      // Transform wilayah.id response to our Region format
+      const data: Region[] = json.data.map((item: any) => ({
+        code: item.code,
+        name: item.name,
+        level,
+        parentCode,
+      }));
+
+      setter(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan");
     } finally {
@@ -207,7 +232,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
       {/* Village Dropdown */}
       <div>
         <label htmlFor="village" className="block text-sm font-medium text-gray-700 mb-1">
-          Desa/Kelurahan
+          Kelurahan/Desa
         </label>
         <select
           id="village"
@@ -216,7 +241,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
           disabled={!selectedDistrict || loading}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <option value="">Pilih Desa/Kelurahan</option>
+          <option value="">Pilih Kelurahan/Desa</option>
           {villages.map((village) => (
             <option key={village.code} value={village.code}>
               {village.name}
