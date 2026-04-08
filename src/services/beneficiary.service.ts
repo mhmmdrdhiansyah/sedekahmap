@@ -1,14 +1,12 @@
 import { db } from '@/db';
 import { beneficiaries } from '@/db/schema/beneficiaries';
-import { regions } from '@/db/schema/regions';
 import { distributions } from '@/db/schema/distributions';
 import { eq, count, avg, sql, like, and } from 'drizzle-orm';
 import { activeVerifiedBeneficiaryFilter } from './beneficiary-filters';
 
 export interface RegionSummary {
   regionCode: string;
-  regionName: string;
-  regionLevel: number;
+  regionName: string | null;
   count: number;
   centerLat: number;
   centerLng: number;
@@ -29,26 +27,36 @@ export interface PublicStats {
 const JITTER_RANGE = 0.003; // ~300 meter max offset
 const INTENSITY = 1.0;
 
+// Helper: Determine region level from code format
+// Level 1 (Prov): "31" (2 digits)
+// Level 2 (Kab): "31.74" (5 chars)
+// Level 3 (Kec): "31.74.09" (8 chars)
+// Level 4 (Des): "31.74.09.1001" (14+ chars)
+function getRegionLevelFromCode(code: string): number {
+  const dots = code.split('.').length;
+  if (dots === 1) return 1; // Provinsi
+  if (dots === 2) return 2; // Kabupaten
+  if (dots === 3) return 3; // Kecamatan
+  return 4; // Desa
+}
+
 export async function getPublicMapData(): Promise<RegionSummary[]> {
   const result = await db
     .select({
       regionCode: beneficiaries.regionCode,
-      regionName: regions.name,
-      regionLevel: regions.level,
+      regionName: beneficiaries.regionName,
       count: count(),
       centerLat: avg(beneficiaries.latitude),
       centerLng: avg(beneficiaries.longitude),
     })
     .from(beneficiaries)
-    .innerJoin(regions, eq(beneficiaries.regionCode, regions.code))
     .where(activeVerifiedBeneficiaryFilter())
-    .groupBy(beneficiaries.regionCode, regions.name, regions.level)
+    .groupBy(beneficiaries.regionCode, beneficiaries.regionName)
     .orderBy(sql`count(*) DESC`);
 
   return result.map((row) => ({
     regionCode: row.regionCode,
-    regionName: row.regionName,
-    regionLevel: row.regionLevel,
+    regionName: row.regionName || 'Unknown Region',
     count: row.count,
     centerLat: parseFloat(String(row.centerLat)),
     centerLng: parseFloat(String(row.centerLng)),
@@ -91,7 +99,7 @@ export async function getPublicStats(regionCode?: string): Promise<PublicStats> 
     .from(beneficiaries)
     .where(familyConditions);
 
-  // Total distinct villages with verified beneficiaries
+  // Total distinct villages with verified beneficiaries (no JOIN needed)
   const villageConditions = regionFilter
     ? and(activeVerifiedBeneficiaryFilter(), regionFilter)
     : activeVerifiedBeneficiaryFilter();
@@ -99,7 +107,6 @@ export async function getPublicStats(regionCode?: string): Promise<PublicStats> 
   const [villageRow] = await db
     .select({ total: sql<number>`COUNT(DISTINCT ${beneficiaries.regionCode})` })
     .from(beneficiaries)
-    .innerJoin(regions, eq(beneficiaries.regionCode, regions.code))
     .where(villageConditions);
 
   // Total completed distributions (filter by region through beneficiaries)

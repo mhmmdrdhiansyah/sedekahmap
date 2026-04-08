@@ -26,11 +26,23 @@ const ZOOM_LEVELS: Record<number, number> = {
   [REGION_LEVELS.DESA]: 14,
 };
 
+// Helper: Determine region level from code format
+// Level 1 (Prov): "31" (2 digits)
+// Level 2 (Kab): "31.74" (5 chars)
+// Level 3 (Kec): "31.74.09" (8 chars)
+// Level 4 (Des): "31.74.09.1001" (14+ chars)
+function getRegionLevelFromCode(code: string): number {
+  const dots = code.split('.').length;
+  if (dots === 1) return 1; // Provinsi
+  if (dots === 2) return 2; // Kabupaten
+  if (dots === 3) return 3; // Kecamatan
+  return 4; // Desa
+}
+
 // Region summary type from map data API
 interface MapRegionSummary {
   regionCode: string;
-  regionName: string;
-  regionLevel: number;
+  regionName: string | null;
   count: number;
   centerLat: number;
   centerLng: number;
@@ -124,7 +136,7 @@ export default function InteractiveMap({ onMapReady, regionSelection }: Interact
         >
           <Popup>
             <div>
-              <strong>{region.regionName}</strong>
+              <strong>{region.regionName || 'Unknown Region'}</strong>
               <br />
               {region.count} keluarga terdata
             </div>

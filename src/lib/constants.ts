@@ -10,7 +10,6 @@ export const API_ROUTES = {
   PUBLIC_MAP_DATA: '/api/public/map-data',
   PUBLIC_HEATMAP_DATA: '/api/public/heatmap-data',
   PUBLIC_STATS: '/api/public/stats',
-  PUBLIC_REGIONS: '/api/public/regions',
   PUBLIC_REVIEWS: '/api/public/reviews',
 
   // Auth

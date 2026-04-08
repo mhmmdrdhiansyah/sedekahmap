@@ -11,8 +11,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "npx tsx src/db/seed.ts",
-    "db:seed-regions": "npx tsx src/db/seed-regions.ts"
+    "db:seed": "npx tsx src/db/seed.ts"
   },
   "dependencies": {
     "babel-plugin-react-compiler": "^1.0.0",
