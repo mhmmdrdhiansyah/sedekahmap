@@ -1,6 +1,7 @@
 import { db } from '@/db';
 import { beneficiaries } from '@/db/schema/beneficiaries';
 import { regions } from '@/db/schema/regions';
+import { distributions } from '@/db/schema/distributions';
 import { eq, count, avg, sql } from 'drizzle-orm';
 import { activeVerifiedBeneficiaryFilter } from './beneficiary-filters';
 
@@ -17,6 +18,12 @@ export interface HeatmapPoint {
   lat: number;
   lng: number;
   intensity: number;
+}
+
+export interface PublicStats {
+  totalFamilies: number;
+  totalVillages: number;
+  totalDistributions: number;
 }
 
 const JITTER_RANGE = 0.003; // ~300 meter max offset
@@ -66,4 +73,31 @@ export async function getPublicHeatmapData(): Promise<HeatmapPoint[]> {
       intensity: INTENSITY,
     };
   });
+}
+
+export async function getPublicStats(): Promise<PublicStats> {
+  // Total verified active families
+  const [familyRow] = await db
+    .select({ total: count() })
+    .from(beneficiaries)
+    .where(activeVerifiedBeneficiaryFilter());
+
+  // Total distinct villages with verified beneficiaries
+  const [villageRow] = await db
+    .select({ total: sql<number>`COUNT(DISTINCT ${beneficiaries.regionCode})` })
+    .from(beneficiaries)
+    .innerJoin(regions, eq(beneficiaries.regionCode, regions.code))
+    .where(activeVerifiedBeneficiaryFilter());
+
+  // Total completed distributions
+  const [distRow] = await db
+    .select({ total: count() })
+    .from(distributions)
+    .where(eq(distributions.status, 'completed'));
+
+  return {
+    totalFamilies: familyRow.total,
+    totalVillages: villageRow.total,
+    totalDistributions: distRow.total,
+  };
 }
