@@ -28,7 +28,7 @@ declare module 'next-auth' {
   }
 }
 
-declare module 'next-auth/jwt' {
+declare module 'next-auth' {
   interface JWT {
     id: string;
     roles: string[];
@@ -119,9 +119,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
     // Session callback — dipanggil setiap kali session dibaca
     session({ session, token }) {
-      session.user.id = token.id;
-      session.user.roles = token.roles;
-      session.user.permissions = token.permissions;
+      session.user.id = token.id as string;
+      session.user.roles = token.roles as string[];
+      session.user.permissions = token.permissions as string[];
       return session;
     },
   },
