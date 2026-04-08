@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import RegionFilter, { RegionSelection } from "@/components/filters/RegionFilter";
 import RegionSummary from "@/components/filters/RegionSummary";
@@ -15,11 +15,6 @@ const PublicMap = dynamic(() => import("@/components/map/InteractiveMap"), {
 export default function PetaPage() {
   const [selectedRegion, setSelectedRegion] = useState<RegionSelection>({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  // Share selected region with map component via window
-  useEffect(() => {
-    (window as any).sedekahRegion = selectedRegion;
-  }, [selectedRegion]);
 
   const handleRegionChange = useCallback((region: RegionSelection) => {
     setSelectedRegion(region);
@@ -85,7 +80,7 @@ export default function PetaPage() {
 
       {/* Map */}
       <div className="flex-1 relative">
-        <PublicMap />
+        <PublicMap regionSelection={selectedRegion} />
       </div>
     </div>
   );

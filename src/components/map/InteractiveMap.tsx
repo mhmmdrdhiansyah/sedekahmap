@@ -8,6 +8,7 @@ import HeatmapLayer from "./HeatmapLayer";
 import { useHeatmapData } from "@/hooks/useHeatmapData";
 import { useMapData } from "@/hooks/useMapData";
 import { MAP_CONFIG, REGION_LEVELS } from "@/lib/constants";
+import { RegionSelection } from "@/components/filters/RegionFilter";
 
 // Fix default marker icon - WAJIB untuk Next.js
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -25,45 +26,58 @@ const ZOOM_LEVELS: Record<number, number> = {
   [REGION_LEVELS.DESA]: 14,
 };
 
+// Region summary type from map data API
+interface MapRegionSummary {
+  regionCode: string;
+  regionName: string;
+  regionLevel: number;
+  count: number;
+  centerLat: number;
+  centerLng: number;
+}
+
 interface MapControllerProps {
   regionCode: string | null;
   regionLevel: number | null;
+  mapData: MapRegionSummary[];
 }
 
-function MapController({ regionCode, regionLevel }: MapControllerProps) {
+function MapController({ regionCode, regionLevel, mapData }: MapControllerProps) {
   const map = useMap();
 
   useEffect(() => {
     if (!regionCode || !regionLevel) return;
 
-    const zoomToRegion = async () => {
-      try {
-        // Fetch map data to find the region center
-        const response = await fetch("/api/public/map-data");
-        const json = await response.json();
-        const region = json.data.find((r: any) => r.regionCode === regionCode);
-
-        if (region) {
-          map.flyTo([region.centerLat, region.centerLng], ZOOM_LEVELS[regionLevel] || 10, {
-            duration: 1.5,
-          });
-        }
-      } catch (error) {
-        console.error("Failed to zoom to region:", error);
+    if (regionLevel === REGION_LEVELS.DESA) {
+      // For desa level, find exact match
+      const region = mapData.find((r) => r.regionCode === regionCode);
+      if (region) {
+        map.flyTo([region.centerLat, region.centerLng], ZOOM_LEVELS[regionLevel] || 10, {
+          duration: 1.5,
+        });
       }
-    };
-
-    zoomToRegion();
-  }, [regionCode, regionLevel, map]);
+    } else {
+      // For parent levels, filter children and calculate average center
+      const children = mapData.filter((r) => r.regionCode.startsWith(regionCode));
+      if (children.length > 0) {
+        const avgLat = children.reduce((sum, r) => sum + r.centerLat, 0) / children.length;
+        const avgLng = children.reduce((sum, r) => sum + r.centerLng, 0) / children.length;
+        map.flyTo([avgLat, avgLng], ZOOM_LEVELS[regionLevel] || 10, {
+          duration: 1.5,
+        });
+      }
+    }
+  }, [regionCode, regionLevel, map, mapData]);
 
   return null;
 }
 
 interface InteractiveMapProps {
   onMapReady?: (map: L.Map) => void;
+  regionSelection?: RegionSelection;
 }
 
-export default function InteractiveMap({ onMapReady }: InteractiveMapProps) {
+export default function InteractiveMap({ onMapReady, regionSelection }: InteractiveMapProps) {
   const heatmap = useHeatmapData();
   const mapData = useMapData();
   const mapRef = useRef<L.Map | null>(null);
@@ -74,15 +88,14 @@ export default function InteractiveMap({ onMapReady }: InteractiveMapProps) {
     onMapReady?.(map);
   };
 
-  // Get the most specific region selected (from window.sedekahRegion)
+  // Get the most specific region selected from prop
   const [regionCode, regionLevel] = (() => {
-    const region = (window as any).sedekahRegion;
-    if (!region) return [null, null];
+    if (!regionSelection) return [null, null];
 
-    if (region.village) return [region.village.code, REGION_LEVELS.DESA];
-    if (region.district) return [region.district.code, REGION_LEVELS.KECAMATAN];
-    if (region.regency) return [region.regency.code, REGION_LEVELS.KABUPATEN];
-    if (region.province) return [region.province.code, REGION_LEVELS.PROVINSI];
+    if (regionSelection.village) return [regionSelection.village.code, REGION_LEVELS.DESA];
+    if (regionSelection.district) return [regionSelection.district.code, REGION_LEVELS.KECAMATAN];
+    if (regionSelection.regency) return [regionSelection.regency.code, REGION_LEVELS.KABUPATEN];
+    if (regionSelection.province) return [regionSelection.province.code, REGION_LEVELS.PROVINSI];
 
     return [null, null];
   })();
@@ -96,7 +109,7 @@ export default function InteractiveMap({ onMapReady }: InteractiveMapProps) {
       maxZoom={MAP_CONFIG.MAX_ZOOM}
       className="h-full w-full"
     >
-      <MapController regionCode={regionCode} regionLevel={regionLevel} />
+      <MapController regionCode={regionCode} regionLevel={regionLevel} mapData={mapData.data} />
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

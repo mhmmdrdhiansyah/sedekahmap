@@ -53,8 +53,11 @@ export default function RegionSummary({ region }: RegionSummaryProps) {
         // Calculate totals
         const totalFamilies = filteredData.reduce((sum: number, item: any) => sum + item.count, 0);
 
-        // Fetch distributions count
-        const distResponse = await fetch(API_ROUTES.PUBLIC_STATS);
+        // Fetch distributions count (filtered by region)
+        const statsUrl = regionCode
+          ? `${API_ROUTES.PUBLIC_STATS}?regionCode=${encodeURIComponent(regionCode)}`
+          : API_ROUTES.PUBLIC_STATS;
+        const distResponse = await fetch(statsUrl);
         if (!distResponse.ok) throw new Error("Gagal memuat data distribusi");
 
         const distJson = await distResponse.json();
