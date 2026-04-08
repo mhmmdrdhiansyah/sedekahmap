@@ -15,6 +15,79 @@
 
 ---
 
+## Arsitektur Sistem (Layered Architecture)
+
+Semua kode diorganisasi dalam 3 layer. **Aturan wajib: layer atas boleh panggil layer bawah, layer bawah TIDAK BOLEH panggil layer atas.**
+
+```
+PRESENTATION (paling atas)
+  ├── src/app/api/*/route.ts        ← HTTP Controller (parse request, panggil service, format response)
+  ├── src/app/(auth)/pages          ← Auth UI pages
+  ├── src/app/(public)/pages        ← Public UI pages
+  ├── src/app/(dashboard)/pages     ← Dashboard UI pages
+  └── src/components/               ← UI Components
+        ↓ boleh panggil
+BUSINESS LOGIC (tengah)
+  ├── src/services/*.service.ts     ← Business logic, validasi, orchestrasi DB
+  ├── src/services/*-filters.ts     ← Shared query filters
+  ├── src/lib/auth.ts               ← NextAuth config (pakai auth.service, bukan query langsung)
+  ├── src/lib/auth-utils.ts         ← Auth helper functions
+  ├── src/lib/constants.ts          ← Konstanta global
+  └── src/lib/utils/*.ts            ← Utility functions
+        ↓ boleh panggil
+PERSISTENCE (paling bawah)
+  ├── src/db/index.ts               ← Database connection
+  ├── src/db/schema/*.ts            ← Table definitions & relations
+  ├── src/db/seed.ts                ← Seed data
+  └── src/db/seed-regions.ts        ← Region seed data
+```
+
+### Aturan per Layer
+
+| Layer | BOLEH import dari | TIDAK BOLEH import dari |
+|-------|-------------------|------------------------|
+| **Presentation** (`app/api/*`, `components/*`) | `services/*`, `lib/*`, `next/server`, `next/navigation` | `@/db`, `@/db/schema/*`, `drizzle-orm`, `bcryptjs` |
+| **Business Logic** (`services/*`, `lib/*`) | `@/db`, `@/db/schema/*`, `drizzle-orm`, `bcryptjs`, `lib/constants` | `next/server`, `next/navigation`, `next/headers` |
+| **Persistence** (`db/*`) | Hanya `drizzle-orm`, driver DB | `services/*`, `lib/*`, `next/*` |
+
+### Pattern Wajib untuk Setiap API Route
+
+```typescript
+// ❌ SALAH — business logic di route
+// src/app/api/example/route.ts
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const hashedPassword = await bcrypt.hash(body.password, 12); // ← business logic di sini
+  const [user] = await db.insert(users).values({...}).returning(); // ← DB query di sini
+  return NextResponse.json(user, { status: 201 });
+}
+
+// ✅ BENAR — thin controller, logic di service
+// src/app/api/example/route.ts
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const result = await exampleService.createExample(body); // ← delegasi ke service
+  if (!result.success) return NextResponse.json({ error: result.message }, { status: 400 });
+  return NextResponse.json(result.data, { status: 201 });
+}
+```
+
+### Service File per Modul
+
+| Modul | Service File | Fungsi Utama |
+|-------|-------------|-------------|
+| Auth | `src/services/auth.service.ts` | `findUserByEmail`, `getUserRolesAndPermissions`, `verifyPassword` |
+| User | `src/services/user.service.ts` | `validateRegisterInput`, `registerUser` |
+| Beneficiary | `src/services/beneficiary.service.ts` | `getPublicMapData`, `getPublicHeatmapData`, CRUD beneficiary |
+| Beneficiary Filters | `src/services/beneficiary-filters.ts` | `activeVerifiedBeneficiaryFilter` |
+| Access Request | `src/services/access-request.service.ts` | CRUD access request, approve/reject |
+| Distribution | `src/services/distribution.service.ts` | CRUD distribution, verify, upload bukti |
+| Review | `src/services/review.service.ts` | CRUD review, validasi double review |
+| User Management | `src/services/user-management.service.ts` | CRUD user oleh admin, assign/revoke roles |
+| Upload | `src/services/upload.service.ts` | Validasi file, simpan ke disk, return URL |
+
+---
+
 ## PHASE 0: Project Setup & Infrastructure
 
 ### Step 1 — Init Project Next.js 14
@@ -117,35 +190,49 @@ Install `bcryptjs` untuk hashing. Tambah script `db:seed` di package.json.
 ### Step 10 — NextAuth.js v5 + RBAC Middleware
 
 Setup auth lengkap:
-1. **NextAuth config** (`src/lib/auth.ts`): Credentials Provider, JWT strategy, callbacks yang menambahkan `userId`, `roles[]`, dan `permissions[]` ke session/token
-2. **Route handler**: `src/app/api/auth/[...nextauth]/route.ts`
-3. **Middleware** (`src/middleware.ts`): Proteksi route berdasarkan role:
-   - `/admin/*` → role `admin`
-   - `/verifikator/*` → role `verifikator`
-   - `/donatur/*` → role `donatur`
-   - `/`, `/peta` → publik
-4. **Auth helpers** (`src/lib/auth-utils.ts`):
+
+**Business Logic Layer:**
+1. **Auth service** (`src/services/auth.service.ts`): Fungsi-fungsi yang mengakses DB:
+   - `findUserByEmail(email)` — query users by email
+   - `getUserRolesAndPermissions(userId)` — query roles + permissions (multi-table join)
+   - `verifyPassword(plainText, hash)` — wrapper bcrypt.compare
+2. **Auth helpers** (`src/lib/auth-utils.ts`):
    - `getCurrentUser()` — ambil user + roles + permissions dari session
    - `requireRole(role)` — throw jika role tidak sesuai
    - `requirePermission(permission)` — throw jika permission tidak ada
    - `hasPermission(user, permission)` — boolean check
 
-**File target**: `src/lib/auth.ts`, `src/app/api/auth/[...nextauth]/route.ts`, `src/middleware.ts`, `src/lib/auth-utils.ts`
-**AC**: Login berfungsi, session berisi roles & permissions, route terproteksi.
+**Presentation Layer:**
+3. **NextAuth config** (`src/lib/auth.ts`): Credentials Provider, JWT strategy, callbacks — **import dari `auth.service.ts`**, JANGAN query DB langsung
+4. **Route handler**: `src/app/api/auth/[...nextauth]/route.ts` — hanya export `handlers`
+5. **Middleware** (`src/middleware.ts`): Proteksi route berdasarkan role:
+   - `/admin/*` → role `admin`
+   - `/verifikator/*` → role `verifikator`
+   - `/donatur/*` → role `donatur`
+   - `/`, `/peta` → publik
+
+**File target**: `src/services/auth.service.ts`, `src/lib/auth.ts`, `src/app/api/auth/[...nextauth]/route.ts`, `src/middleware.ts`, `src/lib/auth-utils.ts`
+**AC**: Login berfungsi, session berisi roles & permissions, route terproteksi. `auth.ts` tidak import `@/db` atau `bcryptjs`.
 
 ---
 
 ### Step 11 — Halaman Login & Register
 
-Buat halaman auth dengan layout sendiri (tanpa navbar utama):
-1. **Login**: Form email + password, submit via `signIn()`, redirect berdasarkan role
-2. **Register**: Form lengkap (nama, email, password, phone, alamat), hanya untuk donatur, API call ke register endpoint
-3. **Register API**: Validasi, hash password, insert user + assign role `donatur`
+**Business Logic Layer:**
+1. **User service** (`src/services/user.service.ts`):
+   - `validateRegisterInput(input)` — validasi field (nama min 2, email valid, password min 6, dll)
+   - `registerUser(input)` — alur lengkap: validasi → cek email unik → hash password → insert user → assign role donatur → rollback jika role tidak ditemukan
+
+**Presentation Layer:**
+2. **Register API** (`src/app/api/auth/register/route.ts`): Thin controller — parse JSON → panggil `registerUser()` → map error code ke HTTP status
+3. **Login page** (`src/app/(auth)/login/page.tsx`): Form email + password, submit via `signIn()`, redirect berdasarkan role
+4. **Register page** (`src/app/(auth)/register/page.tsx`): Form lengkap, API call ke register endpoint
+5. **Auth layout** (`src/app/(auth)/layout.tsx`): Layout tanpa navbar utama
 
 UI harus menarik — card centered, gradient background, branding SedekahMap.
 
-**File target**: `src/app/(auth)/login/page.tsx`, `src/app/(auth)/register/page.tsx`, `src/app/(auth)/layout.tsx`, `src/app/api/auth/register/route.ts`
-**AC**: Register → login → redirect ke dashboard sesuai role.
+**File target**: `src/services/user.service.ts`, `src/app/api/auth/register/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/register/page.tsx`, `src/app/(auth)/layout.tsx`
+**AC**: Register → login → redirect ke dashboard sesuai role. Route tidak import `@/db`, `bcryptjs`, atau `drizzle-orm`.
 
 ---
 
@@ -164,12 +251,19 @@ Install `leaflet`, `react-leaflet`, `leaflet.heat` beserta types. Buat komponen 
 
 ### Step 13 — API Data Agregat Peta Publik
 
-Buat 2 API endpoint publik:
-1. **`/api/public/map-data`**: Return jumlah beneficiaries per wilayah (GROUP BY region). Format: `{ regionCode, regionName, count, centerLat, centerLng }`. Filter hanya `verified` & belum expired. **JANGAN** return data pribadi (NIK, nama, alamat).
-2. **`/api/public/heatmap-data`**: Return `[lat, lng, intensity]` untuk leaflet.heat. Koordinat harus di-**jitter** (tambah random offset kecil) agar tidak menunjuk lokasi presisi rumah.
+**Business Logic Layer:**
+1. **Beneficiary filters** (`src/services/beneficiary-filters.ts`):
+   - `activeVerifiedBeneficiaryFilter()` — filter condition shared: `status = 'verified' AND (expiresAt IS NULL OR expiresAt > NOW())`
+2. **Beneficiary service** (`src/services/beneficiary.service.ts`):
+   - `getPublicMapData()` — query JOIN beneficiaries + regions, GROUP BY, ORDER BY count DESC, transformasi center coords
+   - `getPublicHeatmapData()` — query lat/lng beneficiaries, terapkan privacy jitter (JITTER_RANGE=0.003), return `HeatmapPoint[]`
 
-**File target**: `src/app/api/public/map-data/route.ts`, `src/app/api/public/heatmap-data/route.ts`
-**AC**: Response hanya data agregat, tidak ada PII.
+**Presentation Layer:**
+3. **Map data API** (`src/app/api/public/map-data/route.ts`): Thin controller — panggil `getPublicMapData()` → return `{ data }`
+4. **Heatmap data API** (`src/app/api/public/heatmap-data/route.ts`): Thin controller — panggil `getPublicHeatmapData()` → transform ke `number[][]` → return `{ data }`
+
+**File target**: `src/services/beneficiary-filters.ts`, `src/services/beneficiary.service.ts`, `src/app/api/public/map-data/route.ts`, `src/app/api/public/heatmap-data/route.ts`
+**AC**: Response hanya data agregat, tidak ada PII. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
@@ -189,11 +283,13 @@ Buat halaman utama publik:
 ### Step 15 — Filter Wilayah + Halaman Peta
 
 Buat halaman peta fullscreen (`/peta`) dengan filter wilayah:
-1. **API regions**: `/api/public/regions?level=1` atau `?parentCode=XX`
-2. **Region filter component**: 4 dropdown cascading (Provinsi → Kabupaten → Kecamatan → Desa)
+1. **Region filter component**: 4 dropdown cascading (Provinsi → Kabupaten → Kecamatan → Desa)
+2. **Regions API** (`src/app/api/public/regions/route.ts`): Thin controller — query regions dari DB via service
 3. **Halaman peta**: Sidebar filter + peta, zoom otomatis saat filter berubah, list ringkasan per area
 
-**File target**: `src/app/api/public/regions/route.ts`, `src/components/filters/RegionFilter.tsx`, `src/app/(public)/peta/page.tsx`
+> 💡 Karena query regions sederhana (hanya SELECT by level/parentCode), boleh langsung di route jika tidak ada business logic tambahan. Tapi jika ada validasi atau transformasi, extract ke service.
+
+**File target**: `src/components/filters/RegionFilter.tsx`, `src/app/api/public/regions/route.ts`, `src/app/(public)/peta/page.tsx`
 **AC**: Filter cascading berfungsi, peta zoom ke area terpilih.
 
 ---
@@ -210,13 +306,23 @@ Buat layout dashboard verifikator (protected, role `verifikator`). Sidebar: Dash
 
 ### Step 17 — CRUD Beneficiary (Input Data Target Sedekah)
 
-1. **LocationPicker component**: Peta interaktif, klik untuk pilih koordinat, tampilkan marker. Dynamic import.
-2. **Form input** (`/verifikator/input`): Nama, NIK, Alamat, Kebutuhan, Wilayah (cascading dropdown), Lokasi (map picker)
-3. **API** (`/api/verifikator/beneficiaries`): POST (create, auto-set `verified`, `expiresAt` +6 bulan) dan GET (list milik verifikator ini)
-4. **Halaman data** (`/verifikator/data`): Tabel data yang sudah diinput, kolom nama di-mask.
+**Business Logic Layer:**
+1. **Beneficiary service** (`src/services/beneficiary.service.ts`): Tambahkan fungsi:
+   - `createBeneficiary(data, verifikatorId)` — validasi NIK unik, set `verified`, hitung `expiresAt` +6 bulan, insert ke DB
+   - `getBeneficiariesByVerifikator(verifikatorId)` — list data milik verifikator, mask nama
+   - `getBeneficiaryById(id)` — detail satu beneficiary
+   - `updateBeneficiary(id, data)` — update data beneficiary
+   - `deleteBeneficiary(id)` — soft/hard delete
 
-**File target**: `src/components/map/LocationPicker.tsx`, `src/app/(dashboard)/verifikator/input/page.tsx`, `src/app/api/verifikator/beneficiaries/route.ts`, `src/app/(dashboard)/verifikator/data/page.tsx`
-**AC**: Data tersimpan ke database, list hanya tampil data verifikator yang login.
+**Presentation Layer:**
+2. **LocationPicker component**: Peta interaktif, klik untuk pilih koordinat, tampilkan marker. Dynamic import.
+3. **Beneficiaries API** (`src/app/api/verifikator/beneficiaries/route.ts`): Thin controller — POST (create) dan GET (list), delegasi ke service
+4. **Beneficiary detail API** (`src/app/api/verifikator/beneficiaries/[id]/route.ts`): Thin controller — GET, PUT, DELETE
+5. **Form input** (`/verifikator/input`): Nama, NIK, Alamat, Kebutuhan, Wilayah (cascading dropdown), Lokasi (map picker)
+6. **Halaman data** (`/verifikator/data`): Tabel data yang sudah diinput, kolom nama di-mask.
+
+**File target**: `src/services/beneficiary.service.ts` (update), `src/components/map/LocationPicker.tsx`, `src/app/(dashboard)/verifikator/input/page.tsx`, `src/app/api/verifikator/beneficiaries/route.ts`, `src/app/api/verifikator/beneficiaries/[id]/route.ts`, `src/app/(dashboard)/verifikator/data/page.tsx`
+**AC**: Data tersimpan ke database, list hanya tampil data verifikator yang login. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
@@ -232,25 +338,38 @@ Buat layout dashboard donatur (protected, role `donatur`). Sidebar: Dashboard, C
 
 ### Step 19 — Cari Target & Request Akses
 
-1. **Halaman cari** (`/donatur/cari`): Peta dengan data agregat, klik area → popup jumlah + tombol "Minta Akses Data"
-2. **Modal request**: Form niat sedekah, submit ke API
-3. **API** (`/api/donatur/access-requests`): POST (create request `pending`) dan GET (list request donatur)
-4. **Halaman list request** (`/donatur/requests`): Tabel status request
+**Business Logic Layer:**
+1. **Access request service** (`src/services/access-request.service.ts`): Fungsi:
+   - `validateAccessRequest(input)` — validasi intention, cek beneficiary exists
+   - `createAccessRequest(donaturId, beneficiaryId, intention)` — create request dengan status `pending`, cegah duplicate
+   - `getAccessRequestsByDonatur(donaturId)` — list request donatur
+   - `getAccessRequestDetail(id, donaturId)` — detail request + data beneficiary jika approved
 
-**File target**: `src/app/(dashboard)/donatur/cari/page.tsx`, `src/components/modals/RequestAccessModal.tsx`, `src/app/api/donatur/access-requests/route.ts`, `src/app/(dashboard)/donatur/requests/page.tsx`
-**AC**: Request masuk ke DB dengan status `pending`.
+**Presentation Layer:**
+2. **Access requests API** (`src/app/api/donatur/access-requests/route.ts`): Thin controller — POST dan GET, delegasi ke service
+3. **Access request detail API** (`src/app/api/donatur/access-requests/[id]/route.ts`): Thin controller — GET detail
+4. **Halaman cari** (`/donatur/cari`): Peta dengan data agregat, klik area → popup jumlah + tombol "Minta Akses Data"
+5. **Modal request**: Form niat sedekah, submit ke API
+6. **Halaman list request** (`/donatur/requests`): Tabel status request
+
+**File target**: `src/services/access-request.service.ts`, `src/app/api/donatur/access-requests/route.ts`, `src/app/api/donatur/access-requests/[id]/route.ts`, `src/app/(dashboard)/donatur/cari/page.tsx`, `src/components/modals/RequestAccessModal.tsx`, `src/app/(dashboard)/donatur/requests/page.tsx`
+**AC**: Request masuk ke DB dengan status `pending`. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
 ### Step 20 — Detail Target Setelah Approved
 
-1. **API detail** (`/api/donatur/access-requests/[id]`): Return detail. Jika status `approved` → include data lengkap beneficiary (nama, alamat, koordinat presisi). Jika bukan → hanya status.
-2. **Halaman detail** (`/donatur/requests/[id]`): Tampil info target + Kode Penyaluran (SDK-XXX) + peta dengan marker presisi
-3. **DirectionMap component**: Marker target + hitung jarak dari posisi device donatur menggunakan `@turf/distance` + browser Geolocation API
+**Business Logic Layer:**
+1. **Access request service** (`src/services/access-request.service.ts`): Tambahkan:
+   - `getAccessRequestWithBeneficiaryDetail(id, donaturId)` — jika approved, include data lengkap beneficiary (nama, alamat, koordinat presisi); jika belum, hanya status
+
+**Presentation Layer:**
+2. **DirectionMap component**: Marker target + hitung jarak dari posisi device donatur menggunakan `@turf/distance` + browser Geolocation API
+3. **Halaman detail** (`/donatur/requests/[id]`): Tampil info target + Kode Penyaluran (SDK-XXX) + peta dengan marker presisi
 
 Install `@turf/turf`.
 
-**File target**: `src/app/api/donatur/access-requests/[id]/route.ts`, `src/app/(dashboard)/donatur/requests/[id]/page.tsx`, `src/components/map/DirectionMap.tsx`
+**File target**: `src/services/access-request.service.ts` (update), `src/app/(dashboard)/donatur/requests/[id]/page.tsx`, `src/components/map/DirectionMap.tsx`
 **AC**: Detail hanya muncul jika `approved`, jarak real-time dihitung.
 
 ---
@@ -267,24 +386,37 @@ Buat layout dashboard admin (protected, role `admin`). Sidebar: Dashboard, Appro
 
 ### Step 22 — Approval Access Request
 
-1. **API list** (`/api/admin/access-requests`): GET semua request, filterable by status
-2. **API action** (`/api/admin/access-requests/[id]`): PATCH approve (generate `distributionCode` format `SDK-XXXXXX`, buat record `distributions`) atau reject (+ alasan)
-3. **Halaman approval** (`/admin/approvals`): Tabel request + tombol Approve/Reject dengan modal konfirmasi
-4. **Utility** (`src/lib/utils/generate-code.ts`): Generate kode unik
+**Business Logic Layer:**
+1. **Access request service** (`src/services/access-request.service.ts`): Tambahkan:
+   - `getAllAccessRequests(filters?)` — list semua request, filterable by status
+   - `approveAccessRequest(id, adminId)` — generate `distributionCode` format `SDK-XXXXXX`, update status, buat record `distributions`, return distribution
+   - `rejectAccessRequest(id, adminId, reason)` — update status + rejection reason
+2. **Utility** (`src/lib/utils/generate-code.ts`): Generate kode unik `SDK-XXXXXX`
 
-**File target**: `src/app/api/admin/access-requests/route.ts`, `src/app/api/admin/access-requests/[id]/route.ts`, `src/app/(dashboard)/admin/approvals/page.tsx`, `src/lib/utils/generate-code.ts`
-**AC**: Approve → kode ter-generate + record distributions terbuat.
+**Presentation Layer:**
+3. **Admin access requests API** (`src/app/api/admin/access-requests/route.ts`): Thin controller — GET list
+4. **Admin access request action API** (`src/app/api/admin/access-requests/[id]/route.ts`): Thin controller — PATCH approve/reject
+5. **Halaman approval** (`/admin/approvals`): Tabel request + tombol Approve/Reject dengan modal konfirmasi
+
+**File target**: `src/services/access-request.service.ts` (update), `src/lib/utils/generate-code.ts`, `src/app/api/admin/access-requests/route.ts`, `src/app/api/admin/access-requests/[id]/route.ts`, `src/app/(dashboard)/admin/approvals/page.tsx`
+**AC**: Approve → kode ter-generate + record distributions terbuat. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
 ### Step 23 — Verifikasi Foto Bukti
 
-1. **API** (`/api/admin/distributions`): GET list `pending_review`. PATCH verify (`completed`) atau reject.
-2. **Halaman verifikasi** (`/admin/verifikasi`): Tabel + preview foto + tombol Terverifikasi/Tolak
-3. Saat verify: update beneficiary status ke `completed` juga.
+**Business Logic Layer:**
+1. **Distribution service** (`src/services/distribution.service.ts`): Fungsi:
+   - `getDistributionsByStatus(status)` — list distributions, filterable
+   - `verifyDistribution(id, adminId, approved)` — update status `completed`/`rejected`, jika completed update juga beneficiary status ke `completed`
 
-**File target**: `src/app/api/admin/distributions/route.ts`, `src/app/api/admin/distributions/[id]/route.ts`, `src/app/(dashboard)/admin/verifikasi/page.tsx`
-**AC**: Admin bisa verifikasi foto, status ter-update.
+**Presentation Layer:**
+2. **Distributions API** (`src/app/api/admin/distributions/route.ts`): Thin controller — GET list pending_review
+3. **Distribution action API** (`src/app/api/admin/distributions/[id]/route.ts`): Thin controller — PATCH verify/reject
+4. **Halaman verifikasi** (`/admin/verifikasi`): Tabel + preview foto + tombol Terverifikasi/Tolak
+
+**File target**: `src/services/distribution.service.ts`, `src/app/api/admin/distributions/route.ts`, `src/app/api/admin/distributions/[id]/route.ts`, `src/app/(dashboard)/admin/verifikasi/page.tsx`
+**AC**: Admin bisa verifikasi foto, status ter-update. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
@@ -292,12 +424,20 @@ Buat layout dashboard admin (protected, role `admin`). Sidebar: Dashboard, Appro
 
 ### Step 24 — Upload Foto Bukti Penyaluran
 
-1. **Upload API** (`/api/upload`): Accept multipart, simpan ke `public/uploads/proofs/`, validasi max 5MB + jpg/png/webp only
-2. **Halaman lapor** (`/donatur/lapor`): Form Kode Penyaluran + Upload Foto + Notes, preview sebelum upload
-3. **API update** (`/api/donatur/distributions/[code]`): Cari by code, update `proofPhotoUrl`, set status `pending_review`
+**Business Logic Layer:**
+1. **Upload service** (`src/services/upload.service.ts`): Fungsi:
+   - `validateFile(file)` — cek max 5MB, tipe jpg/png/webp only
+   - `saveFile(file)` — simpan ke `public/uploads/proofs/`, return URL
+2. **Distribution service** (`src/services/distribution.service.ts`): Tambahkan:
+   - `updateDistributionProof(code, donaturId, proofPhotoUrl, notes)` — cari by code, cek milik donatur, update `proofPhotoUrl`, set status `pending_review`
 
-**File target**: `src/app/api/upload/route.ts`, `src/app/(dashboard)/donatur/lapor/page.tsx`, `src/app/api/donatur/distributions/[code]/route.ts`
-**AC**: Foto tersimpan lokal, status berubah ke `pending_review`.
+**Presentation Layer:**
+3. **Upload API** (`src/app/api/upload/route.ts`): Thin controller — accept multipart, delegasi ke `uploadService.saveFile()`
+4. **Distribution update API** (`src/app/api/donatur/distributions/[code]/route.ts`): Thin controller — PATCH, delegasi ke service
+5. **Halaman lapor** (`/donatur/lapor`): Form Kode Penyaluran + Upload Foto + Notes, preview sebelum upload
+
+**File target**: `src/services/upload.service.ts`, `src/services/distribution.service.ts` (update), `src/app/api/upload/route.ts`, `src/app/api/donatur/distributions/[code]/route.ts`, `src/app/(dashboard)/donatur/lapor/page.tsx`
+**AC**: Foto tersimpan lokal, status berubah ke `pending_review`. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
@@ -305,22 +445,32 @@ Buat layout dashboard admin (protected, role `admin`). Sidebar: Dashboard, Appro
 
 ### Step 25 — Donatur Tulis Ulasan
 
-1. **API** (`/api/donatur/reviews`): POST review, validasi distribution milik donatur & status `completed`, cegah double review
-2. **Halaman detail penyaluran** (`/donatur/penyaluran/[id]`): Detail + form review (rating 1-5 bintang + teks) hanya jika `completed` & belum ada review
+**Business Logic Layer:**
+1. **Review service** (`src/services/review.service.ts`): Fungsi:
+   - `createReview(donaturId, distributionId, rating, content)` — validasi distribution milik donatur & status `completed`, cegah double review, insert review
 
-**File target**: `src/app/api/donatur/reviews/route.ts`, `src/app/(dashboard)/donatur/penyaluran/[id]/page.tsx`
-**AC**: Review tersimpan, tidak bisa double review.
+**Presentation Layer:**
+2. **Reviews API** (`src/app/api/donatur/reviews/route.ts`): Thin controller — POST, delegasi ke service
+3. **Halaman detail penyaluran** (`/donatur/penyaluran/[id]`): Detail + form review (rating 1-5 bintang + teks) hanya jika `completed` & belum ada review
+
+**File target**: `src/services/review.service.ts`, `src/app/api/donatur/reviews/route.ts`, `src/app/(dashboard)/donatur/penyaluran/[id]/page.tsx`
+**AC**: Review tersimpan, tidak bisa double review. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
 ### Step 26 — Tampilkan Ulasan di Halaman Publik
 
-1. **API publik** (`/api/public/reviews`): Return reviews terbaru. Include nama donatur, rating, content, area. **JANGAN** include nama target/NIK/alamat.
-2. **ReviewCard component**: Card dengan rating bintang, teks, info area
-3. **Update landing page**: Tambah section "Ulasan Terbaru"
+**Business Logic Layer:**
+1. **Review service** (`src/services/review.service.ts`): Tambahkan:
+   - `getPublicReviews(limit?)` — return reviews terbaru, include nama donatur, rating, content, area. **JANGAN** include nama target/NIK/alamat.
 
-**File target**: `src/app/api/public/reviews/route.ts`, `src/components/reviews/ReviewCard.tsx`, update `src/app/(public)/page.tsx`
-**AC**: Ulasan tampil tanpa data pribadi target.
+**Presentation Layer:**
+2. **Public reviews API** (`src/app/api/public/reviews/route.ts`): Thin controller — GET, delegasi ke service
+3. **ReviewCard component**: Card dengan rating bintang, teks, info area
+4. **Update landing page**: Tambah section "Ulasan Terbaru"
+
+**File target**: `src/services/review.service.ts` (update), `src/app/api/public/reviews/route.ts`, `src/components/reviews/ReviewCard.tsx`, update `src/app/(public)/page.tsx`
+**AC**: Ulasan tampil tanpa data pribadi target. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
@@ -328,17 +478,36 @@ Buat layout dashboard admin (protected, role `admin`). Sidebar: Dashboard, Appro
 
 ### Step 27 — Cron: Expired Data Re-Assessment
 
-Buat API endpoint (`/api/cron/expire-beneficiaries`) yang meng-update beneficiaries yang `expiresAt < NOW()` dan status `verified` menjadi `expired`. Tambahkan notifikasi di dashboard verifikator untuk data expired.
+**Business Logic Layer:**
+1. **Beneficiary service** (`src/services/beneficiary.service.ts`): Tambahkan:
+   - `expireOverdueBeneficiaries()` — update beneficiaries yang `expiresAt < NOW()` dan status `verified` menjadi `expired`
+   - `getExpiredBeneficiaryStats()` — statistik data expired untuk notifikasi dashboard
 
-**File target**: `src/app/api/cron/expire-beneficiaries/route.ts`
+**Presentation Layer:**
+2. **Cron API** (`src/app/api/cron/expire-beneficiaries/route.ts`): Thin controller — panggil service function
+
+**File target**: `src/services/beneficiary.service.ts` (update), `src/app/api/cron/expire-beneficiaries/route.ts`
+**AC**: Beneficiaries expired ter-update otomatis. Route tidak import `@/db` atau `drizzle-orm`.
 
 ---
 
 ### Step 28 — Admin: Kelola User (CRUD)
 
-CRUD user oleh admin. List users dengan pagination & filter role. Create user baru (admin/verifikator). Edit, nonaktifkan user. Admin bisa assign/revoke roles.
+**Business Logic Layer:**
+1. **User management service** (`src/services/user-management.service.ts`): Fungsi:
+   - `listUsers(filters?, pagination?)` — list users dengan pagination & filter role
+   - `createUser(data)` — create user (admin/verifikator), hash password, assign roles
+   - `updateUser(id, data)` — edit user, update roles
+   - `toggleUserActive(id)` — aktifkan/nonaktifkan user
+   - `assignRoles(userId, roleIds)` — assign/revoke roles
 
-**File target**: `src/app/api/admin/users/route.ts`, `src/app/api/admin/users/[id]/route.ts`, `src/app/(dashboard)/admin/users/page.tsx`
+**Presentation Layer:**
+2. **Admin users API** (`src/app/api/admin/users/route.ts`): Thin controller — GET list, POST create
+3. **Admin user detail API** (`src/app/api/admin/users/[id]/route.ts`): Thin controller — GET, PUT, PATCH
+4. **Halaman kelola user** (`/admin/users`): Tabel users dengan pagination & action buttons
+
+**File target**: `src/services/user-management.service.ts`, `src/app/api/admin/users/route.ts`, `src/app/api/admin/users/[id]/route.ts`, `src/app/(dashboard)/admin/users/page.tsx`
+**AC**: CRUD user berfungsi, role assignment berfungsi. Route tidak import `@/db`, `bcryptjs`, atau `drizzle-orm`.
 
 ---
 
@@ -389,38 +558,38 @@ graph TD
     S6 --> S7[7: Schema access_requests]
     S7 --> S8[8: Schema distributions+reviews]
     S5 --> S9[9: Seed roles+permissions+users]
-    
-    S5 --> S10[10: NextAuth + RBAC]
-    S10 --> S11[11: Login & Register UI]
-    
+
+    S5 --> S10[10: NextAuth + RBAC + auth.service]
+    S10 --> S11[11: Login & Register + user.service]
+
     S1 --> S12[12: Leaflet Setup]
-    S6 --> S13[13: API Agregat]
+    S6 --> S13[13: API Agregat + beneficiary.service + beneficiary-filters]
     S12 --> S14[14: Landing + Heatmap]
     S13 --> S14
     S4 --> S15[15: Filter Wilayah]
     S14 --> S15
-    
+
     S10 --> S16[16: Dashboard Verifikator]
-    S16 --> S17[17: CRUD Beneficiary]
-    
+    S16 --> S17[17: CRUD Beneficiary + service]
+
     S10 --> S18[18: Dashboard Donatur]
-    S18 --> S19[19: Cari & Request]
+    S18 --> S19[19: Cari & Request + access-request.service]
     S19 --> S20[20: Detail Target]
-    
+
     S10 --> S21[21: Dashboard Admin]
-    S21 --> S22[22: Approval Request]
-    S22 --> S23[23: Verifikasi Foto]
-    
-    S20 --> S24[24: Upload Bukti]
-    S24 --> S25[25: Tulis Ulasan]
+    S21 --> S22[22: Approval + service]
+    S22 --> S23[23: Verifikasi Foto + distribution.service]
+
+    S20 --> S24[24: Upload Bukti + upload.service]
+    S24 --> S25[25: Tulis Ulasan + review.service]
     S25 --> S26[26: Ulasan Publik]
-    
-    S6 --> S27[27: Cron Expired]
-    S21 --> S28[28: CRUD Users]
-    
+
+    S6 --> S27[27: Cron Expired + beneficiary.service]
+    S21 --> S28[28: CRUD Users + user-management.service]
+
     S1 --> S29[29: Shared Components]
     S8 --> S30[30: Docker Production]
-    
+
     S4 -.-> S31[31: Seed Wilayah JSON]
 
     style S31 stroke-dasharray: 5 5
@@ -443,3 +612,10 @@ graph TD
 4. **RBAC**: Setiap API route harus check permission, bukan hanya role. Gunakan `requirePermission()`.
 
 5. **Database**: Jalankan `npm run db:push` setelah setiap perubahan schema.
+
+6. **LAYERED ARCHITECTURE — WAJIB**: Setiap API route HARUS mengikuti pola:
+   - Route (Presentation) → Service (Business Logic) → DB (Persistence)
+   - **JANGAN** import `@/db`, `@/db/schema/*`, `drizzle-orm`, atau `bcryptjs` di route file
+   - **JANGAN** import `next/server` atau `next/navigation` di service file
+   - Semua query DB, validasi business logic, dan orchestrasi harus di service layer
+   - Route file hanya handle: parse request → panggil service → map error ke HTTP status → return response

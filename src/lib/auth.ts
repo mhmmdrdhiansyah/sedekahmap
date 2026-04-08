@@ -1,11 +1,10 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import bcrypt from 'bcryptjs';
-import { db } from '@/db';
-import { users, userRoles } from '@/db/schema/users';
-import { roles, rolePermissions } from '@/db/schema/roles';
-import { permissions } from '@/db/schema/permissions';
-import { eq } from 'drizzle-orm';
+import {
+  findUserByEmail,
+  getUserRolesAndPermissions,
+  verifyPassword,
+} from '@/services/auth.service';
 
 // ============================================================
 // TYPE AUGMENTATION
@@ -35,38 +34,6 @@ declare module 'next-auth/jwt' {
     roles: string[];
     permissions: string[];
   }
-}
-
-// ============================================================
-// HELPER: Ambil roles & permissions user dari database
-// ============================================================
-async function getUserRolesAndPermissions(userId: string) {
-  // Query user_roles → roles
-  const userRoleRows = await db
-    .select({
-      roleName: roles.name,
-    })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .where(eq(userRoles.userId, userId));
-
-  const roleNames = userRoleRows.map((r) => r.roleName);
-
-  // Query role_permissions → permissions (untuk semua roles user)
-  const userPermissionRows = await db
-    .select({
-      permissionName: permissions.name,
-    })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-    .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-    .where(eq(userRoles.userId, userId));
-
-  // Deduplicate permissions (jika user punya multiple roles dengan overlap)
-  const permissionNames = [...new Set(userPermissionRows.map((p) => p.permissionName))];
-
-  return { roles: roleNames, permissions: permissionNames };
 }
 
 // ============================================================
@@ -104,11 +71,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         // 2. Cari user di database
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.email, email))
-          .limit(1);
+        const user = await findUserByEmail(email);
 
         if (!user) {
           throw new Error('Email atau password salah.');
@@ -120,7 +83,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         // 4. Verifikasi password dengan bcrypt
-        const isPasswordValid = await bcrypt.compare(password, user.password);
+        const isPasswordValid = await verifyPassword(password, user.password);
         if (!isPasswordValid) {
           throw new Error('Email atau password salah.');
         }
