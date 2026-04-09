@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { API_ROUTES, REGION_LEVELS } from "@/lib/constants";
 
 export interface Region {
   code: string;
@@ -19,9 +20,6 @@ export interface RegionSelection {
 interface RegionFilterProps {
   onRegionChange?: (region: RegionSelection) => void;
 }
-
-// API Constants
-const WILAYAH_API_BASE = "https://wilayah.id/api";
 
 export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Data states
@@ -48,7 +46,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch regencies when province changes
   useEffect(() => {
     if (selectedProvince) {
-      fetchWilayahData("regencies", selectedProvince, setRegencies, 1);
+      fetchWilayahData("regencies", selectedProvince, setRegencies, REGION_LEVELS.KABUPATEN);
     } else {
       setRegencies([]);
     }
@@ -62,7 +60,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch districts when regency changes
   useEffect(() => {
     if (selectedRegency) {
-      fetchWilayahData("districts", selectedRegency, setDistricts, 2);
+      fetchWilayahData("districts", selectedRegency, setDistricts, REGION_LEVELS.KECAMATAN);
     } else {
       setDistricts([]);
     }
@@ -74,7 +72,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   // Fetch villages when district changes
   useEffect(() => {
     if (selectedDistrict) {
-      fetchWilayahData("villages", selectedDistrict, setVillages, 3);
+      fetchWilayahData("villages", selectedDistrict, setVillages, REGION_LEVELS.DESA);
     } else {
       setVillages([]);
     }
@@ -109,7 +107,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${WILAYAH_API_BASE}/provinces.json`);
+      const response = await fetch(`${API_ROUTES.PUBLIC_REGIONS}?type=provinces`);
       if (!response.ok) throw new Error("Gagal memuat data provinsi");
       const json = await response.json();
 
@@ -117,7 +115,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
       const data: Region[] = json.data.map((item: any) => ({
         code: item.code,
         name: item.name,
-        level: 1,
+        level: REGION_LEVELS.PROVINSI,
         parentCode: null,
       }));
 
@@ -138,7 +136,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${WILAYAH_API_BASE}/${type}/${parentCode}.json`);
+      const response = await fetch(`${API_ROUTES.PUBLIC_REGIONS}?type=${type}&parentCode=${parentCode}`);
       if (!response.ok) throw new Error(`Gagal memuat data ${type}`);
       const json = await response.json();
 
