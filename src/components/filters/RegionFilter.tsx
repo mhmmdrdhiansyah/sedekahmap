@@ -111,6 +111,16 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
       if (!response.ok) throw new Error("Gagal memuat data provinsi");
       const json = await response.json();
 
+      // Check for error response from proxy
+      if (json.error) {
+        throw new Error(json.error);
+      }
+
+      // Validate data is an array
+      if (!Array.isArray(json.data)) {
+        throw new Error("Format data tidak valid dari server");
+      }
+
       // Transform wilayah.id response to our Region format
       const data: Region[] = json.data.map((item: any) => ({
         code: item.code,
@@ -139,6 +149,16 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
       const response = await fetch(`${API_ROUTES.PUBLIC_REGIONS}?type=${type}&parentCode=${parentCode}`);
       if (!response.ok) throw new Error(`Gagal memuat data ${type}`);
       const json = await response.json();
+
+      // Check for error response from proxy
+      if (json.error) {
+        throw new Error(json.error);
+      }
+
+      // Validate data is an array
+      if (!Array.isArray(json.data)) {
+        throw new Error("Format data tidak valid dari server");
+      }
 
       // Transform wilayah.id response to our Region format
       const data: Region[] = json.data.map((item: any) => ({
