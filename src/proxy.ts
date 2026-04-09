@@ -20,6 +20,11 @@ const PUBLIC_ROUTES = [
   '/register',
 ];
 
+// Prefix route yang selalu publik (tidak perlu auth)
+const PUBLIC_ROUTE_PREFIXES = [
+  '/api/public',
+];
+
 // ============================================================
 // PROXY FUNCTION
 // Di Next.js 16, 'middleware' diganti menjadi 'proxy'
@@ -32,7 +37,10 @@ export const proxy = auth((req) => {
   const isPublicRoute = PUBLIC_ROUTES.some(
     (route) => pathname === route || pathname === route + '/'
   );
-  if (isPublicRoute) {
+  const isPublicPrefix = PUBLIC_ROUTE_PREFIXES.some(
+    (prefix) => pathname.startsWith(prefix)
+  );
+  if (isPublicRoute || isPublicPrefix) {
     return NextResponse.next();
   }
 

@@ -9,7 +9,6 @@ import {
   index,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
-import { regions } from './regions';
 import { users } from './users';
 
 // ============================================================
@@ -33,7 +32,10 @@ export const beneficiaries = pgTable('beneficiaries', {
   needs: text('needs').notNull(),         // Deskripsi kebutuhan (sembako, obat, dll)
   latitude: doublePrecision('latitude').notNull(),
   longitude: doublePrecision('longitude').notNull(),
-  regionCode: varchar('region_code', { length: 20 }).notNull(), // FK ke regions.code
+  // Region data dari API wilayah.id (disimpan langsung, tidak perlu join)
+  regionCode: varchar('region_code', { length: 20 }).notNull(), // Kode wilayah.id (misal "31.74.09.1001")
+  regionName: varchar('region_name', { length: 255 }), // Nama desa/kelurahan (misal "Sreengseng Sawah") - nullable untuk backward compatibility
+  regionPath: text('region_path'), // Full path: "DKI Jakarta > Kota Jakarta Selatan > Kec. Jagakarsa > Kel. Sreengseng Sawah"
   status: beneficiaryStatusEnum('status').default('verified').notNull(),
   verifiedById: uuid('verified_by_id'),  // FK ke users.id (verifikator)
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
@@ -52,10 +54,6 @@ export const beneficiaries = pgTable('beneficiaries', {
 // RELATIONS
 // ============================================================
 export const beneficiariesRelations = relations(beneficiaries, ({ one }) => ({
-  region: one(regions, {
-    fields: [beneficiaries.regionCode],
-    references: [regions.code],
-  }),
   verifiedBy: one(users, {
     fields: [beneficiaries.verifiedById],
     references: [users.id],
