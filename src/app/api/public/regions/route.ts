@@ -42,10 +42,10 @@ export async function GET(request: NextRequest) {
       throw new Error(`wilayah.id API returned ${response.status}`);
     }
 
-    const data = await response.json();
+    const result = await response.json();
 
-    // Return the data in the same format
-    return NextResponse.json({ data }, { status: 200 });
+    // Extract the data array from wilayah.id response { data: [...], meta: {...} }
+    return NextResponse.json({ data: result.data }, { status: 200 });
   } catch (error) {
     console.error('Regions proxy API error:', error);
     return NextResponse.json(

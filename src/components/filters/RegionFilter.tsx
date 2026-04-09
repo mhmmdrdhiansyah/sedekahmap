@@ -194,7 +194,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
           value={selectedProvince}
           onChange={(e) => setSelectedProvince(e.target.value)}
           disabled={loading}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">Pilih Provinsi</option>
           {provinces.map((province) => (
@@ -215,7 +215,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
           value={selectedRegency}
           onChange={(e) => setSelectedRegency(e.target.value)}
           disabled={!selectedProvince || loading}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">Pilih Kabupaten/Kota</option>
           {regencies.map((regency) => (
@@ -236,7 +236,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
           value={selectedDistrict}
           onChange={(e) => setSelectedDistrict(e.target.value)}
           disabled={!selectedRegency || loading}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">Pilih Kecamatan</option>
           {districts.map((district) => (
@@ -257,7 +257,7 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
           value={selectedVillage}
           onChange={(e) => setSelectedVillage(e.target.value)}
           disabled={!selectedDistrict || loading}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">Pilih Kelurahan/Desa</option>
           {villages.map((village) => (
