@@ -5,6 +5,13 @@ import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+// Role-based dashboard mapping
+const ROLE_DASHBOARD: Record<string, string> = {
+  admin: '/admin',
+  verifikator: '/verifikator',
+  donatur: '/donatur',
+};
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,11 +40,30 @@ function LoginForm() {
         return;
       }
 
-      // Login berhasil - redirect ke home
-      // TODO: Redirect ke dashboard berdasarkan role setelah halaman dibuat
+      // Login berhasil - redirect berdasarkan prioritas:
+      // 1. callbackUrl (jika user mencoba akses halaman protected)
+      // 2. dashboard berdasarkan role
+      // 3. home sebagai fallback
       if (callbackUrl) {
         router.push(callbackUrl);
       } else {
+        // Fetch session data untuk menentukan redirect berdasarkan role
+        const response = await fetch('/api/auth/session');
+        const session = await response.json();
+
+        if (session?.user?.roles && session.user.roles.length > 0) {
+          // Gunakan role pertama sebagai primary role
+          const primaryRole = session.user.roles[0];
+          const dashboardPath = ROLE_DASHBOARD[primaryRole];
+
+          if (dashboardPath) {
+            router.push(dashboardPath);
+            router.refresh();
+            return;
+          }
+        }
+
+        // Fallback ke home jika tidak ada role mapping
         router.push('/');
       }
 
