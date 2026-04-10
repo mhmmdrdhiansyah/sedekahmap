@@ -9,3 +9,4 @@ export * from './beneficiaries';
 export * from './accessRequests';
 export * from './distributions';
 export * from './reviews';
+export * from './villageCoordinates';
