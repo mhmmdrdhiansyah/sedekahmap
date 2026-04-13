@@ -127,6 +127,46 @@ export async function getPublicStats(regionCode?: string): Promise<PublicStats> 
   };
 }
 
+export interface BeneficiaryListItem {
+  id: string;
+  name: string;
+  needs: string;
+  regionName: string | null;
+}
+
+/**
+ * getBeneficiariesByRegion - Get beneficiaries by region code (public, with masked names)
+ * Used for donatur to see available beneficiaries in a region before requesting access
+ * @param regionCode - Region code to match (supports prefix matching)
+ * @param exact - If true, use exact match; if false, use LIKE prefix matching (default: false)
+ */
+export async function getBeneficiariesByRegion(
+  regionCode: string,
+  exact: boolean = false
+): Promise<BeneficiaryListItem[]> {
+  // Build condition: exact match or prefix match (LIKE)
+  const regionCondition = exact
+    ? eq(beneficiaries.regionCode, regionCode)
+    : like(beneficiaries.regionCode, `${regionCode}%`);
+
+  const results = await db
+    .select({
+      id: beneficiaries.id,
+      name: beneficiaries.name,
+      needs: beneficiaries.needs,
+      regionName: beneficiaries.regionName,
+    })
+    .from(beneficiaries)
+    .where(and(regionCondition, activeVerifiedBeneficiaryFilter()))
+    .orderBy(desc(beneficiaries.createdAt));
+
+  // Mask names for privacy
+  return results.map((item) => ({
+    ...item,
+    name: maskName(item.name),
+  })) as BeneficiaryListItem[];
+}
+
 // ============================================================
 // VERIFIKATOR SERVICE FUNCTIONS
 // ============================================================
