@@ -132,6 +132,8 @@ export interface BeneficiaryListItem {
   name: string;
   needs: string;
   regionName: string | null;
+  latitude?: number;
+  longitude?: number;
 }
 
 /**
@@ -155,6 +157,8 @@ export async function getBeneficiariesByRegion(
       name: beneficiaries.name,
       needs: beneficiaries.needs,
       regionName: beneficiaries.regionName,
+      latitude: beneficiaries.latitude,
+      longitude: beneficiaries.longitude,
     })
     .from(beneficiaries)
     .where(and(regionCondition, activeVerifiedBeneficiaryFilter()))

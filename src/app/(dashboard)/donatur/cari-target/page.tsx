@@ -33,6 +33,8 @@ interface Beneficiary {
   name: string;
   needs: string;
   regionName: string | null;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface RegionData {
@@ -168,11 +170,19 @@ export default function CariTargetPage() {
         // Update selected region name
         setSelectedRegion({ code: regionCode, name: regionName });
 
-        // Calculate map center from mapData (using ref to avoid dependency)
-        const regionData = mapDataRef.current.find((r) => r.regionCode === regionCode);
-        if (regionData) {
-          setMapCenter([regionData.centerLat, regionData.centerLng]);
-          setMapZoom(ZOOM_LEVELS[regionLevel || REGION_LEVELS.KABUPATEN]);
+        // Calculate map center from beneficiaries data (not mapData)
+        // This works because regionCode can be prefix match
+        if (beneficiariesData.length > 0) {
+          // Find first beneficiary with valid coordinates
+          const validBeneficiary = beneficiariesData.find((b: Beneficiary) => b.latitude && b.longitude);
+          if (validBeneficiary) {
+            // Calculate average center from all beneficiaries with coordinates
+            const validBeneficiaries = beneficiariesData.filter((b: Beneficiary) => b.latitude && b.longitude);
+            const avgLat = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.latitude || 0), 0) / validBeneficiaries.length;
+            const avgLng = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.longitude || 0), 0) / validBeneficiaries.length;
+            setMapCenter([avgLat, avgLng]);
+            setMapZoom(ZOOM_LEVELS[regionLevel || REGION_LEVELS.KABUPATEN]);
+          }
         } else {
           setMapCenter(null);
           setMapZoom(undefined);
