@@ -19,9 +19,10 @@ export interface RegionSelection {
 
 interface RegionFilterProps {
   onRegionChange?: (region: RegionSelection) => void;
+  initialRegion?: RegionSelection;
 }
 
-export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
+export default function RegionFilter({ onRegionChange, initialRegion }: RegionFilterProps) {
   // Data states
   const [provinces, setProvinces] = useState<Region[]>([]);
   const [regencies, setRegencies] = useState<Region[]>([]);
@@ -34,6 +35,9 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   const [selectedDistrict, setSelectedDistrict] = useState<string>("");
   const [selectedVillage, setSelectedVillage] = useState<string>("");
 
+  // Track if initial region has been applied
+  const [initialized, setInitialized] = useState(false);
+
   // Loading/error states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +46,67 @@ export default function RegionFilter({ onRegionChange }: RegionFilterProps) {
   useEffect(() => {
     fetchProvinces();
   }, []);
+
+  // Initialize from initialRegion prop (for edit mode)
+  useEffect(() => {
+    if (initialRegion && !initialized) {
+      const initializeRegion = async () => {
+        // Load provinces first if not loaded
+        if (provinces.length === 0) {
+          await fetchProvinces();
+        }
+
+        // Set province if available
+        if (initialRegion.province) {
+          const province = provinces.find((p) => p.name === initialRegion.province?.name);
+          if (province) {
+            setSelectedProvince(province.code);
+
+            // Fetch and set regency
+            await fetchWilayahData("regencies", province.code, setRegencies, REGION_LEVELS.KABUPATEN);
+
+            if (initialRegion.regency) {
+              // Wait for regencies state to update
+              setTimeout(() => {
+                const regency = regencies.find((r) => r.name === initialRegion.regency?.name);
+                if (regency) {
+                  setSelectedRegency(regency.code);
+
+                  // Fetch and set district
+                  fetchWilayahData("districts", regency.code, setDistricts, REGION_LEVELS.KECAMATAN).then(() => {
+                    setTimeout(() => {
+                      if (initialRegion.district) {
+                        const district = districts.find((d) => d.name === initialRegion.district?.name);
+                        if (district) {
+                          setSelectedDistrict(district.code);
+
+                          // Fetch and set village
+                          fetchWilayahData("villages", district.code, setVillages, REGION_LEVELS.DESA).then(() => {
+                            setTimeout(() => {
+                              if (initialRegion.village) {
+                                const village = villages.find((v) => v.name === initialRegion.village?.name);
+                                if (village) {
+                                  setSelectedVillage(village.code);
+                                }
+                              }
+                            }, 100);
+                          });
+                        }
+                      }
+                    }, 100);
+                  });
+                }
+              }, 100);
+            }
+          }
+        }
+
+        setInitialized(true);
+      };
+
+      initializeRegion();
+    }
+  }, [initialRegion, initialized, provinces]);
 
   // Fetch regencies when province changes
   useEffect(() => {
