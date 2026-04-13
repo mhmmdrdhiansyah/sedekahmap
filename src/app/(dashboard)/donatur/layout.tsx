@@ -5,19 +5,20 @@ import { ROLES } from '@/lib/constants';
 import DashboardSidebar, { MenuItem } from '@/components/layout/DashboardSidebar';
 
 // ============================================================
-// VERIFIKATOR MENU ITEMS
+// DONATUR MENU ITEMS
 // ============================================================
-const VERIFIKATOR_MENU: MenuItem[] = [
-  { label: 'Dashboard', path: '/verifikator', icon: 'home' },
-  { label: 'Input Data', path: '/verifikator/input', icon: 'plus' },
-  { label: 'Data Saya', path: '/verifikator/data-saya', icon: 'list' },
-  { label: 'Profile', path: '/verifikator/profile', icon: 'user' },
+const DONATUR_MENU: MenuItem[] = [
+  { label: 'Dashboard', path: '/donatur', icon: 'home' },
+  { label: 'Cari Target', path: '/donatur/cari-target', icon: 'search' },
+  { label: 'Permintaan Saya', path: '/donatur/permintaan-saya', icon: 'clipboard' },
+  { label: 'Penyaluran', path: '/donatur/penyaluran', icon: 'gift' },
+  { label: 'Profile', path: '/donatur/profile', icon: 'user' },
 ];
 
 // ============================================================
 // LAYOUT COMPONENT
 // ============================================================
-export default async function VerifikatorLayout({
+export default async function DonaturLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -25,18 +26,18 @@ export default async function VerifikatorLayout({
   // Auth check - get current user
   const user = await getCurrentUser();
 
-  // Redirect to unauthorized if not logged in or not a verifikator
+  // Redirect to unauthorized if not logged in or not a donatur
   if (!user) {
-    redirect('/login?callbackUrl=/verifikator');
+    redirect('/login?callbackUrl=/donatur');
   }
 
-  if (user.roles.includes(ROLES.VERIFIKATOR) === false) {
+  if (user.roles.includes(ROLES.DONATUR) === false) {
     redirect('/unauthorized');
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <DashboardSidebar userName={user.name} menuItems={VERIFIKATOR_MENU} subtitle="Panel Verifikator" />
+      <DashboardSidebar userName={user.name} menuItems={DONATUR_MENU} subtitle="Panel Donatur" />
       <main className="md:ml-64 min-h-screen">
         <div className="p-6 md:p-8">{children}</div>
       </main>

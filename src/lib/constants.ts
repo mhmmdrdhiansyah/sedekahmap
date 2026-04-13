@@ -25,6 +25,8 @@ export const API_ROUTES = {
   DONATUR_ACCESS_REQUESTS: '/api/donatur/access-requests',
   DONATUR_DISTRIBUTIONS: '/api/donatur/distributions',
   DONATUR_REVIEWS: '/api/donatur/reviews',
+  DONATUR_STATISTICS: '/api/donatur/statistics',
+  DONATUR_RECENT_REQUESTS: '/api/donatur/recent-requests',
 
   // Admin
   ADMIN_ACCESS_REQUESTS: '/api/admin/access-requests',

@@ -8,7 +8,7 @@ import { signOut } from 'next-auth/react';
 // ============================================================
 // TYPES
 // ============================================================
-export type MenuIcon = 'home' | 'plus' | 'list' | 'user';
+export type MenuIcon = 'home' | 'plus' | 'list' | 'user' | 'search' | 'clipboard' | 'gift';
 
 export interface MenuItem {
   label: string;
@@ -19,6 +19,7 @@ export interface MenuItem {
 interface DashboardSidebarProps {
   userName: string;
   menuItems: MenuItem[];
+  subtitle?: string;
 }
 
 // ============================================================
@@ -44,6 +45,21 @@ function MenuIcon({ icon }: { icon: MenuIcon }) {
     user: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    ),
+    search: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      </svg>
+    ),
+    clipboard: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+      </svg>
+    ),
+    gift: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
       </svg>
     ),
   };
@@ -78,13 +94,15 @@ function CloseIcon() {
 // ============================================================
 // COMPONENT
 // ============================================================
-export default function DashboardSidebar({ userName, menuItems }: DashboardSidebarProps) {
+export default function DashboardSidebar({ userName, menuItems, subtitle }: DashboardSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
 
   const isActive = (item: MenuItem): boolean => {
-    // Exact match for root path
-    if (item.path === '/verifikator') {
+    // Determine base path from first menu item for exact matching
+    const basePath = menuItems[0]?.path ?? '';
+    // Exact match for base path (e.g., /verifikator or /donatur)
+    if (item.path === basePath) {
       return pathname === item.path;
     }
     // Starts with for sub-paths
@@ -130,7 +148,7 @@ export default function DashboardSidebar({ userName, menuItems }: DashboardSideb
           {/* Header */}
           <div className="p-6 border-b border-gray-100">
             <h1 className="text-xl font-bold text-primary">SedekahMap</h1>
-            <p className="text-xs text-gray-500 mt-1">Panel Verifikator</p>
+            {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
           </div>
 
           {/* Navigation */}
