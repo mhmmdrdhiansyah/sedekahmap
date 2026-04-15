@@ -216,26 +216,29 @@ export default async function DonaturDashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {recentData.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                      {item.beneficiaryName}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] truncate">
-                      {item.needs}
-                    </td>
-                    <td className="px-6 py-4">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {new Date(item.createdAt).toLocaleDateString('id-ID', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
-                    </td>
-                  </tr>
-                ))}
+                {recentData.map((item) => {
+                  const isApproved = item.status === 'approved';
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm text-gray-900 font-medium">
+                        {isApproved ? item.beneficiaryName : '*** (Data tersembunyi)'}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600 max-w-[200px] truncate">
+                        {item.needs}
+                      </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={item.status} />
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">
+                        {new Date(item.createdAt).toLocaleDateString('id-ID', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

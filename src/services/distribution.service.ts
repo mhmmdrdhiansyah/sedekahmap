@@ -174,3 +174,170 @@ export async function verifyDistribution(
 
   return updatedDistribution as DistributionItem;
 }
+
+// ============================================================
+// DONATUR SERVICE FUNCTIONS
+// ============================================================
+
+/**
+ * getDistributionsByDonaturId - Get distributions for a specific donatur
+ * @param donaturId - The donatur's user ID
+ * @param options - Filter and pagination options
+ * @returns Array of distributions with beneficiary info + total count
+ */
+export async function getDistributionsByDonaturId(
+  donaturId: string,
+  options: DistributionListOptions = {}
+): Promise<DistributionListResult> {
+  const { status, limit = 20, offset = 0 } = options;
+
+  // Build where conditions
+  const conditions: SQL[] = [eq(distributions.donaturId, donaturId)];
+  if (status) {
+    conditions.push(eq(distributions.status, status));
+  }
+  const whereCondition = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+  // Get total count
+  const [countResult] = await db
+    .select({ total: count() })
+    .from(distributions)
+    .where(whereCondition);
+
+  const total = countResult?.total ?? 0;
+
+  // Get data with beneficiary info
+  const data = await db
+    .select({
+      id: distributions.id,
+      accessRequestId: distributions.accessRequestId,
+      donaturId: distributions.donaturId,
+      beneficiaryId: distributions.beneficiaryId,
+      distributionCode: distributions.distributionCode,
+      proofPhotoUrl: distributions.proofPhotoUrl,
+      status: distributions.status,
+      verifiedById: distributions.verifiedById,
+      verifiedAt: distributions.verifiedAt,
+      notes: distributions.notes,
+      createdAt: distributions.createdAt,
+      updatedAt: distributions.updatedAt,
+      beneficiary: {
+        id: beneficiaries.id,
+        name: beneficiaries.name,
+        needs: beneficiaries.needs,
+        regionName: beneficiaries.regionName,
+      },
+    })
+    .from(distributions)
+    .innerJoin(beneficiaries, eq(distributions.beneficiaryId, beneficiaries.id))
+    .where(whereCondition)
+    .orderBy(desc(distributions.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  return {
+    data: data as DistributionWithDetails[],
+    total,
+  };
+}
+
+/**
+ * updateDistributionProof - Update distribution with proof photo and notes
+ * @param distributionCode - The distribution code
+ * @param donaturId - The donatur's user ID (for ownership check)
+ * @param proofPhotoUrl - The URL of the uploaded proof photo
+ * @param notes - Optional notes from donatur
+ * @returns The updated distribution
+ * @throws Error if distribution not found, not owned by donatur, or already processed
+ */
+export async function updateDistributionProof(
+  distributionCode: string,
+  donaturId: string,
+  proofPhotoUrl: string,
+  notes?: string
+): Promise<DistributionItem> {
+  // 1. Check distribution exists & belongs to donatur
+  const [existing] = await db
+    .select()
+    .from(distributions)
+    .where(
+      and(
+        eq(distributions.distributionCode, distributionCode),
+        eq(distributions.donaturId, donaturId)
+      )
+    )
+    .limit(1);
+
+  if (!existing) {
+    throw new Error('Distribusi tidak ditemukan');
+  }
+
+  if (existing.status !== STATUS.DISTRIBUTION.PENDING_PROOF) {
+    throw new Error('Distribusi sudah diproses sebelumnya');
+  }
+
+  const now = new Date();
+
+  // 2. Update distribution with proof photo
+  const [updatedDistribution] = await db
+    .update(distributions)
+    .set({
+      proofPhotoUrl,
+      notes: notes || null,
+      status: STATUS.DISTRIBUTION.PENDING_REVIEW,
+      updatedAt: now,
+    })
+    .where(eq(distributions.id, existing.id))
+    .returning();
+
+  return updatedDistribution as DistributionItem;
+}
+
+/**
+ * getDistributionByCode - Get distribution by code with full details
+ * @param distributionCode - The distribution code
+ * @param donaturId - The donatur's user ID (for ownership check)
+ * @returns The distribution with beneficiary info
+ * @throws Error if distribution not found or not owned by donatur
+ */
+export async function getDistributionByCode(
+  distributionCode: string,
+  donaturId: string
+): Promise<DistributionWithDetails> {
+  const [result] = await db
+    .select({
+      id: distributions.id,
+      accessRequestId: distributions.accessRequestId,
+      donaturId: distributions.donaturId,
+      beneficiaryId: distributions.beneficiaryId,
+      distributionCode: distributions.distributionCode,
+      proofPhotoUrl: distributions.proofPhotoUrl,
+      status: distributions.status,
+      verifiedById: distributions.verifiedById,
+      verifiedAt: distributions.verifiedAt,
+      notes: distributions.notes,
+      createdAt: distributions.createdAt,
+      updatedAt: distributions.updatedAt,
+      beneficiary: {
+        id: beneficiaries.id,
+        name: beneficiaries.name,
+        needs: beneficiaries.needs,
+        regionName: beneficiaries.regionName,
+      },
+    })
+    .from(distributions)
+    .innerJoin(beneficiaries, eq(distributions.beneficiaryId, beneficiaries.id))
+    .where(
+      and(
+        eq(distributions.distributionCode, distributionCode),
+        eq(distributions.donaturId, donaturId)
+      )
+    )
+    .limit(1);
+
+  if (!result) {
+    throw new Error('Distribusi tidak ditemukan');
+  }
+
+  return result as DistributionWithDetails;
+}

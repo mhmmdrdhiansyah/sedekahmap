@@ -1,7 +1,8 @@
 import { db } from '@/db';
 import { beneficiaries } from '@/db/schema/beneficiaries';
 import { distributions } from '@/db/schema/distributions';
-import { eq, count, avg, sql, like, and, desc, ne } from 'drizzle-orm';
+import { eq, count, avg, sql, like, and, desc, ne, lt, isNotNull } from 'drizzle-orm';
+import { STATUS } from '@/lib/constants';
 import { activeVerifiedBeneficiaryFilter } from './beneficiary-filters';
 
 export interface RegionSummary {
@@ -376,4 +377,81 @@ export async function deleteBeneficiary(id: string): Promise<{ success: boolean 
   await db.delete(beneficiaries).where(eq(beneficiaries.id, id));
 
   return { success: true };
+}
+
+// ============================================================
+// CRON: EXPIRED BENEFICIARY MANAGEMENT
+// ============================================================
+
+export interface ExpireResult {
+  updatedCount: number;
+}
+
+/**
+ * expireOverdueBeneficiaries - Update beneficiaries yang sudah melewati expiresAt
+ * dari status 'verified' menjadi 'expired'.
+ *
+ * Kondisi: status = 'verified' AND expiresAt IS NOT NULL AND expiresAt < NOW()
+ */
+export async function expireOverdueBeneficiaries(): Promise<ExpireResult> {
+  const result = await db
+    .update(beneficiaries)
+    .set({
+      status: STATUS.BENEFICIARY.EXPIRED,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(beneficiaries.status, STATUS.BENEFICIARY.VERIFIED),
+        isNotNull(beneficiaries.expiresAt),
+        lt(beneficiaries.expiresAt, sql`NOW()`)
+      )
+    );
+
+  return { updatedCount: result.rowCount ?? 0 };
+}
+
+export interface ExpiredBeneficiaryStats {
+  expiredCount: number;
+  expiringSoonCount: number; // expiresAt dalam 7 hari ke depan
+  verifiedActiveCount: number;
+}
+
+/**
+ * getExpiredBeneficiaryStats - Statistik beneficiary expired & yang akan expired
+ */
+export async function getExpiredBeneficiaryStats(): Promise<ExpiredBeneficiaryStats> {
+  const now = new Date();
+  const sevenDaysFromNow = new Date(now);
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+
+  // Total sudah expired (status = 'expired')
+  const [expiredRow] = await db
+    .select({ total: count() })
+    .from(beneficiaries)
+    .where(eq(beneficiaries.status, STATUS.BENEFICIARY.EXPIRED));
+
+  // Total yang akan expired dalam 7 hari (verified, expiresAt not null, expiresAt <= NOW+7d)
+  const [expiringSoonRow] = await db
+    .select({ total: count() })
+    .from(beneficiaries)
+    .where(
+      and(
+        eq(beneficiaries.status, STATUS.BENEFICIARY.VERIFIED),
+        isNotNull(beneficiaries.expiresAt),
+        lt(beneficiaries.expiresAt, sevenDaysFromNow.toISOString())
+      )
+    );
+
+  // Total verified aktif (menggunakan filter yang sama dengan public queries)
+  const [activeRow] = await db
+    .select({ total: count() })
+    .from(beneficiaries)
+    .where(activeVerifiedBeneficiaryFilter());
+
+  return {
+    expiredCount: expiredRow.total,
+    expiringSoonCount: expiringSoonRow.total,
+    verifiedActiveCount: activeRow.total,
+  };
 }

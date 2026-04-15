@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Duplicate pending request
-      if (error.message.includes('sudah memiliki permintaan')) {
+      if (error.message.includes('sudah memiliki')) {
         return NextResponse.json({ error: error.message }, { status: 409 });
       }
 

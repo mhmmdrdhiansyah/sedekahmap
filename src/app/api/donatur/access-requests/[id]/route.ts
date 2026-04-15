@@ -1,48 +1,38 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-import { requireRole } from '@/lib/auth-utils';
-import { ROLES } from '@/lib/constants';
-import { getAccessRequestDetail } from '@/services/access-request.service';
+import { requirePermission } from '@/lib/auth-utils';
+import { PERMISSIONS } from '@/lib/constants';
+import { deleteAccessRequest } from '@/services/access-request.service';
 
 // ============================================================
-// GET /api/donatur/access-requests/[id]
-// Get detail of a specific access request
+// DELETE /api/donatur/access-requests/[id]
+// Delete a pending access request
 // ============================================================
 
-export async function GET(
-  request: Request,
+export async function DELETE(
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const user = await requireRole(ROLES.DONATUR);
+    // Auth & permission check
+    const user = await requirePermission(PERMISSIONS.ACCESS_REQUEST_CREATE);
+
+    // Get access request ID from params
     const { id } = await params;
 
-    const result = await getAccessRequestDetail(id, user.id);
+    // Delete access request
+    await deleteAccessRequest(id, user.id);
 
     return NextResponse.json(
       {
-        data: {
-          id: result.id,
-          beneficiary: result.beneficiary,
-          intention: result.intention,
-          status: result.status,
-          distributionCode: result.distributionCode,
-          createdAt: result.createdAt,
-          reviewedAt: result.reviewedAt,
-          rejectionReason: result.rejectionReason,
-        },
+        message: 'Permintaan akses berhasil dihapus',
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error('Get access request detail error:', error);
+    console.error('Delete access request error:', error);
 
     if (error instanceof Error) {
-      // Not found
-      if (error.message.includes('tidak ditemukan')) {
-        return NextResponse.json({ error: error.message }, { status: 404 });
-      }
-
       // Auth errors
       if (error.message.startsWith('UNAUTHORIZED')) {
         return NextResponse.json(
@@ -57,10 +47,21 @@ export async function GET(
           { status: 403 }
         );
       }
+
+      // Business logic errors
+      if (
+        error.message.includes('tidak ditemukan') ||
+        error.message.includes('sudah diproses')
+      ) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 }
+        );
+      }
     }
 
     return NextResponse.json(
-      { error: 'Gagal memuat detail permintaan akses' },
+      { error: 'Gagal menghapus permintaan akses' },
       { status: 500 }
     );
   }
