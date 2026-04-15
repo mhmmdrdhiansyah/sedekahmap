@@ -1,6 +1,7 @@
 "use client";
 
 import PublicMapWrapper from "@/components/map/PublicMapWrapper";
+import PublicReviewsSection from "@/components/reviews/PublicReviewsSection";
 import { useStats } from "@/hooks/useStats";
 
 function StatCard({ value, label }: { value: string; label: string }) {
@@ -93,6 +94,8 @@ export default function HomePage() {
           ) : null}
         </div>
       </section>
+
+      <PublicReviewsSection />
     </>
   );
 }

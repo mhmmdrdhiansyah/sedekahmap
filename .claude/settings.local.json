@@ -11,7 +11,21 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(gh issue:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(rtk gh:*)",
+      "Bash(wc -l \"D:/laragon/www/sedekahmap/src/app/api\"/**/*.ts)",
+      "Bash(gh pr:*)",
+      "Bash(where rtk:*)",
+      "Bash(rtk gain:*)",
+      "Bash(rtk git:*)",
+      "Bash(rtk tsc:*)",
+      "Bash(npm install:*)",
+      "Bash(gh label:*)",
+      "Bash(rtk find:*)",
+      "mcp__context7__resolve-library-id",
+      "Bash(ls:*)",
+      "Bash(set DATABASE_URL=postgresql://postgres:root@localhost:5432/sedekahmap)"
     ]
   }
 }

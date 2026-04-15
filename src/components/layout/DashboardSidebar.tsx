@@ -8,7 +8,7 @@ import { signOut } from 'next-auth/react';
 // ============================================================
 // TYPES
 // ============================================================
-export type MenuIcon = 'home' | 'plus' | 'list' | 'user' | 'search' | 'clipboard' | 'gift';
+export type MenuIcon = 'home' | 'plus' | 'list' | 'user' | 'search' | 'clipboard' | 'gift' | 'upload';
 
 export interface MenuItem {
   label: string;
@@ -60,6 +60,11 @@ function MenuIcon({ icon }: { icon: MenuIcon }) {
     gift: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a2 2 0 110-4h14a2 2 0 110 4M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" />
+      </svg>
+    ),
+    upload: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
       </svg>
     ),
   };

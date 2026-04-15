@@ -28,6 +28,15 @@ const ZOOM_LEVELS: Record<number, number> = {
   [REGION_LEVELS.DESA]: 14,
 };
 
+// Helper to get region level from region code
+function getRegionLevelFromCode(code: string): number {
+  const dots = code.split('.').length;
+  if (dots === 1) return REGION_LEVELS.PROVINSI;
+  if (dots === 2) return REGION_LEVELS.KABUPATEN;
+  if (dots === 3) return REGION_LEVELS.KECAMATAN;
+  return REGION_LEVELS.DESA;
+}
+
 interface Beneficiary {
   id: string;
   name: string;
@@ -107,6 +116,49 @@ export default function CariTargetPage() {
   // CALLBACKS with useCallback (prevent infinite loop)
   // ============================================================
 
+  // Fetch beneficiaries for a region - REUSABLE FUNCTION
+  const fetchBeneficiariesForRegion = useCallback(async (code: string, name: string, level?: number | null) => {
+    setLoadingBeneficiaries(true);
+    setBeneficiariesError(null);
+
+    try {
+      const response = await fetch(
+        `/api/public/beneficiaries-by-region?regionCode=${encodeURIComponent(code)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Gagal memuat data penerima manfaat");
+      }
+
+      const json = await response.json();
+      const beneficiariesData = json.data || [];
+      setBeneficiaries(beneficiariesData);
+
+      // Update selected region name
+      setSelectedRegion({ code, name });
+
+      // Calculate map center from beneficiaries data
+      if (beneficiariesData.length > 0) {
+        const validBeneficiaries = beneficiariesData.filter((b: Beneficiary) => b.latitude && b.longitude);
+        if (validBeneficiaries.length > 0) {
+          const avgLat = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.latitude || 0), 0) / validBeneficiaries.length;
+          const avgLng = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.longitude || 0), 0) / validBeneficiaries.length;
+          const zoomLevel = level ?? getRegionLevelFromCode(code);
+          setMapCenter([avgLat, avgLng]);
+          setMapZoom(ZOOM_LEVELS[zoomLevel] ?? ZOOM_LEVELS[REGION_LEVELS.KABUPATEN]);
+        }
+      } else {
+        setMapCenter(null);
+        setMapZoom(undefined);
+      }
+    } catch (err) {
+      setBeneficiariesError(err instanceof Error ? err.message : "Terjadi kesalahan");
+      setBeneficiaries([]);
+    } finally {
+      setLoadingBeneficiaries(false);
+    }
+  }, []);
+
   // Handle region filter change - STABLE FUNCTION
   const handleRegionChange = useCallback((selection: RegionSelection) => {
     setRegionSelection(selection);
@@ -125,10 +177,10 @@ export default function CariTargetPage() {
     setModalKey((prev) => prev + 1);
   }, []);
 
-  // Handle region select from map marker - STABLE FUNCTION
+  // Handle region select from map marker - NOW FETCHES BENEFICIARIES
   const handleRegionSelect = useCallback((region: { code: string; name: string }) => {
-    setSelectedRegion(region);
-  }, []);
+    fetchBeneficiariesForRegion(region.code, region.name);
+  }, [fetchBeneficiariesForRegion]);
 
   // Handle close panel - STABLE FUNCTION
   const handleClosePanel = useCallback(() => {
@@ -150,53 +202,8 @@ export default function CariTargetPage() {
       return;
     }
 
-    const fetchBeneficiaries = async () => {
-      setLoadingBeneficiaries(true);
-      setBeneficiariesError(null);
-
-      try {
-        const response = await fetch(
-          `/api/public/beneficiaries-by-region?regionCode=${encodeURIComponent(regionCode)}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Gagal memuat data penerima manfaat");
-        }
-
-        const json = await response.json();
-        const beneficiariesData = json.data || [];
-        setBeneficiaries(beneficiariesData);
-
-        // Update selected region name
-        setSelectedRegion({ code: regionCode, name: regionName });
-
-        // Calculate map center from beneficiaries data (not mapData)
-        // This works because regionCode can be prefix match
-        if (beneficiariesData.length > 0) {
-          // Find first beneficiary with valid coordinates
-          const validBeneficiary = beneficiariesData.find((b: Beneficiary) => b.latitude && b.longitude);
-          if (validBeneficiary) {
-            // Calculate average center from all beneficiaries with coordinates
-            const validBeneficiaries = beneficiariesData.filter((b: Beneficiary) => b.latitude && b.longitude);
-            const avgLat = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.latitude || 0), 0) / validBeneficiaries.length;
-            const avgLng = validBeneficiaries.reduce((sum: number, b: Beneficiary) => sum + (b.longitude || 0), 0) / validBeneficiaries.length;
-            setMapCenter([avgLat, avgLng]);
-            setMapZoom(ZOOM_LEVELS[regionLevel || REGION_LEVELS.KABUPATEN]);
-          }
-        } else {
-          setMapCenter(null);
-          setMapZoom(undefined);
-        }
-      } catch (err) {
-        setBeneficiariesError(err instanceof Error ? err.message : "Terjadi kesalahan");
-        setBeneficiaries([]);
-      } finally {
-        setLoadingBeneficiaries(false);
-      }
-    };
-
-    fetchBeneficiaries();
-  }, [regionCode, regionName, regionLevel]); // Hanya depend pada primitive values yang stabil
+    fetchBeneficiariesForRegion(regionCode, regionName, regionLevel);
+  }, [regionCode, regionName, regionLevel, fetchBeneficiariesForRegion]);
 
   return (
     <div className="space-y-6">
