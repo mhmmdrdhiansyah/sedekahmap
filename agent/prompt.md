@@ -1,6 +1,11 @@
 buatkan issues.md di dalam folder agent yang berisi perencanaan untuk nanti di implementasikan oleh junior programmer atau ai model yang lebih murah.
 
-Jelaskan tahapan-tahapan yang harus dilakukan untuk mengimplementasikan fitur ini, anggap nanti yang menggunakan implementasi adalah junior programmer atau model AI yang lebih murah
+tolong pecahkan dan berikan solusi untuk kekurangan sistem saya ini :
+**Belum Siap Produksi dari Sisi Keamanan.** Upload file publik tanpa autentikasi, NIK disimpan plain text, tidak ada rate limiting, tidak ada CSRF protection, dan validasi file hanya berdasarkan MIME type dari client (bisa dipalsukan). Ini blocker utama untuk production.
+
+**Tidak Ada Validasi Input Terpusat.** Semua validasi dilakukan manual di masing-masing route handler atau service. Tidak menggunakan Zod, Joi, atau Yup. Ini menyebabkan duplikasi kode dan potensi inkonsistensi validasi antara client-side dan server-side.
+
+Jelaskan tahapan-tahapan yang harus dilakukan untuk mengimplementasikan permasalahan ini, anggap nanti yang menggunakan implementasi adalah junior programmer atau model AI yang lebih murah
 
 dari pull request ini, lihat file changes nya. lalu berikan saran dan kritik darimu tentang code yang dibuat jangan mengecek berputar putag saya sudah ada githubcli di terminal gunakan itu. dan apakah sudah sesuai best practice nya :
 https://github.com/mhmmdrdhiansyah/sedekahmap/pull/17
@@ -8,7 +13,7 @@ https://github.com/mhmmdrdhiansyah/sedekahmap/pull/17
 
 
 --------------------------------------------------------------------------------------------------------------------
-# Task: Tampilkan Ulasan di Halaman Publik
+# Task: Cron: Admin: Kelola User (CRUD)
 
 ## Instruksi Utama
 Sebelum membuat kode, **WAJIB** lakukan analisis codebase terlebih dahulu untuk memahami:
@@ -23,18 +28,22 @@ Sebelum membuat kode, **WAJIB** lakukan analisis codebase terlebih dahulu untuk 
 ## Deskripsi Fitur
 
 **Business Logic Layer:**
-1. **Review service** (`src/services/review.service.ts`): Tambahkan:
-   - `getPublicReviews(limit?)` — return reviews terbaru, include nama donatur, rating, content, area. **JANGAN** include nama target/NIK/alamat.
+1. **User management service** (`src/services/user-management.service.ts`): Fungsi:
+   - `listUsers(filters?, pagination?)` — list users dengan pagination & filter role
+   - `createUser(data)` — create user (admin/verifikator), hash password, assign roles
+   - `updateUser(id, data)` — edit user, update roles
+   - `toggleUserActive(id)` — aktifkan/nonaktifkan user
+   - `assignRoles(userId, roleIds)` — assign/revoke roles
 
 **Presentation Layer:**
-2. **Public reviews API** (`src/app/api/public/reviews/route.ts`): Thin controller — GET, delegasi ke service
-3. **ReviewCard component**: Card dengan rating bintang, teks, info area
-4. **Update landing page**: Tambah section "Ulasan Terbaru"
+2. **Admin users API** (`src/app/api/admin/users/route.ts`): Thin controller — GET list, POST create
+3. **Admin user detail API** (`src/app/api/admin/users/[id]/route.ts`): Thin controller — GET, PUT, PATCH
+4. **Halaman kelola user** (`/admin/users`): Tabel users dengan pagination & action buttons
 
-**File target**: `src/services/review.service.ts` (update), `src/app/api/public/reviews/route.ts`, `src/components/reviews/ReviewCard.tsx`, update `src/app/(public)/page.tsx`
-**AC**: Ulasan tampil tanpa data pribadi target. Route tidak import `@/db` atau `drizzle-orm`.
+**File target**: `src/services/user-management.service.ts`, `src/app/api/admin/users/route.ts`, `src/app/api/admin/users/[id]/route.ts`, `src/app/(dashboard)/admin/users/page.tsx`
+**AC**: CRUD user berfungsi, role assignment berfungsi. Route tidak import `@/db`, `bcryptjs`, atau `drizzle-orm`.
 
----
+
 
 ## Output yang Diharapkan
 

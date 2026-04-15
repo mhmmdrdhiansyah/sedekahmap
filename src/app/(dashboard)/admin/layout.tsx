@@ -11,7 +11,16 @@ const ADMIN_MENU: MenuItem[] = [
   { label: 'Dashboard', path: '/admin', icon: 'home' },
   { label: 'Approval', path: '/admin/approvals', icon: 'clipboard' },
   { label: 'Penyaluran', path: '/admin/distributions', icon: 'gift' },
-  { label: 'Users', path: '/admin/users', icon: 'user' },
+  {
+    label: 'Users',
+    path: '/admin/users',
+    icon: 'user',
+    children: [
+      { label: 'Users', path: '/admin/users', icon: 'user' },
+      { label: 'Roles', path: '/admin/users/roles', icon: 'shield' },
+      { label: 'Permissions', path: '/admin/users/permissions', icon: 'key' },
+    ],
+  },
 ];
 
 // ============================================================

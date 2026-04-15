@@ -8,12 +8,13 @@ import { signOut } from 'next-auth/react';
 // ============================================================
 // TYPES
 // ============================================================
-export type MenuIcon = 'home' | 'plus' | 'list' | 'user' | 'search' | 'clipboard' | 'gift' | 'upload';
+export type MenuIcon = 'home' | 'plus' | 'list' | 'user' | 'search' | 'clipboard' | 'gift' | 'upload' | 'shield' | 'key';
 
 export interface MenuItem {
   label: string;
   path: string;
   icon: MenuIcon;
+  children?: MenuItem[];
 }
 
 interface DashboardSidebarProps {
@@ -67,6 +68,16 @@ function MenuIcon({ icon }: { icon: MenuIcon }) {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
       </svg>
     ),
+    shield: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ),
+    key: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      </svg>
+    ),
   };
 
   return icons[icon];
@@ -96,11 +107,25 @@ function CloseIcon() {
   );
 }
 
+function ChevronIcon({ isOpen }: { isOpen: boolean }) {
+  return (
+    <svg
+      className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
 // ============================================================
 // COMPONENT
 // ============================================================
 export default function DashboardSidebar({ userName, menuItems, subtitle }: DashboardSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(new Set());
   const pathname = usePathname();
 
   const isActive = (item: MenuItem): boolean => {
@@ -112,6 +137,18 @@ export default function DashboardSidebar({ userName, menuItems, subtitle }: Dash
     }
     // Starts with for sub-paths
     return pathname.startsWith(item.path);
+  };
+
+  const toggleSubmenu = (path: string) => {
+    setOpenSubmenus((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(path)) {
+        newSet.delete(path);
+      } else {
+        newSet.add(path);
+      }
+      return newSet;
+    });
   };
 
   const handleLogout = async () => {
@@ -160,6 +197,53 @@ export default function DashboardSidebar({ userName, menuItems, subtitle }: Dash
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
             {menuItems.map((item) => {
               const active = isActive(item);
+              const hasChildren = item.children && item.children.length > 0;
+              const isSubmenuOpen = openSubmenus.has(item.path);
+
+              if (hasChildren) {
+                return (
+                  <div key={item.path}>
+                    <button
+                      onClick={() => toggleSubmenu(item.path)}
+                      className={`
+                        w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors
+                        ${active
+                          ? 'bg-primary/10 text-primary font-medium'
+                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        }
+                      `}
+                    >
+                      <div className="flex items-center gap-3">
+                        <MenuIcon icon={item.icon} />
+                        <span>{item.label}</span>
+                      </div>
+                      <ChevronIcon isOpen={isSubmenuOpen} />
+                    </button>
+                    {isSubmenuOpen && (
+                      <div className="ml-6 mt-1 space-y-1">
+                        {item.children!.map((child) => (
+                          <Link
+                            key={child.path}
+                            href={child.path}
+                            onClick={closeSidebar}
+                            className={`
+                              flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm
+                              ${pathname === child.path
+                                ? 'bg-primary/10 text-primary font-medium'
+                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                              }
+                            `}
+                          >
+                            <MenuIcon icon={child.icon} />
+                            <span>{child.label}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <Link
                   key={item.path}

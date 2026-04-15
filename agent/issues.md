@@ -1,464 +1,330 @@
-# Issues: Admin — Kelola User (CRUD)
+# Issues Plan: Security Hardening + Centralized Validation
 
-> Dibuat: 2026-04-15
-> Branch: `feat/distribution-service`
-> Status: Planned
+Dokumen ini adalah rencana implementasi bertahap untuk menutup blocker production:
+1. Keamanan belum siap produksi.
+2. Belum ada validasi input terpusat.
 
----
+Target pembaca: junior programmer atau AI model biaya rendah.
 
-## Codebase Context (Ringkasan Analisis)
+## Ringkasan Kondisi Saat Ini (dari codebase)
 
-### Database Schema
-- **`users`** (`src/db/schema/users.ts`): id, name, email, password (bcrypt), phone, address, isActive, timestamps
-- **`user_roles`** (`src/db/schema/users.ts`): junction table (userId, roleId) — many-to-many user↔role
-- **`roles`** (`src/db/schema/roles.ts`): id, name (admin/verifikator/donatur), description
-- **`permissions`** (`src/db/schema/permissions.ts`): id, name (module:action), description, module
+- Upload route sudah mewajibkan login, tetapi belum ada CSRF dan rate limiting: [src/app/api/upload/route.ts](src/app/api/upload/route.ts).
+- Validasi file upload masih bergantung pada MIME type dari client: [src/services/upload.service.ts](src/services/upload.service.ts).
+- NIK masih dipakai plain text di service saat create/check unique: [src/services/beneficiary.service.ts](src/services/beneficiary.service.ts).
+- Schema beneficiaries memberi catatan bahwa NIK seharusnya encrypted di application layer, tetapi implementasinya belum ada: [src/db/schema/beneficiaries.ts](src/db/schema/beneficiaries.ts).
+- Validasi route dilakukan manual dan tersebar (contoh admin users, verifikator beneficiaries):
+  - [src/app/api/admin/users/route.ts](src/app/api/admin/users/route.ts)
+  - [src/app/api/verifikator/beneficiaries/route.ts](src/app/api/verifikator/beneficiaries/route.ts)
 
-### Permission Constants (sudah ada di `src/lib/constants.ts:65-70`)
-```typescript
-USER_CREATE: 'user:create'
-USER_READ: 'user:read'
-USER_UPDATE: 'user:update'
-USER_DELETE: 'user:delete'
-USER_ASSIGN_ROLE: 'user:assign_role'
-```
+## Aturan Implementasi yang Wajib Diikuti
 
-### API Route yang Sudah Ada (di `src/lib/constants.ts:34`)
-```typescript
-ADMIN_USERS: '/api/admin/users'
-```
-
-### Architecture Rules
-- **Service layer**: Import `db` dari `@/db`, schema dari `@/db/schema/*`, ORM dari `drizzle-orm`
-- **Route layer**: Import `next/server`, `next/navigation`, auth-utils. **DILARANG** import `@/db`, `drizzle-orm`, `bcryptjs`
-- **Permission check**: `await requirePermission(PERMISSIONS.USER_READ)` di setiap route handler
-- **Error handling**: Throw `Error()` dengan prefix `UNAUTHORIZED:` atau `FORBIDDEN:`, route layer map ke HTTP status
-- **Pagination**: `{ data: T[], total: number }` dari service, response: `{ data, pagination: { limit, offset, total } }`
-- **Indonesian messages**: Semua error message dalam Bahasa Indonesia
-
-### UI Patterns (dari `admin/approvals/page.tsx`)
-- Client component (`"use client"`)
-- State: loading, error, data, total, pagination (limit/offset), modal states
-- Fetch dengan `useEffect`, refresh setelah action
-- Desktop: tabel, Mobile: card
-- Filter tabs, status badges, action buttons
-- Modal konfirmasi untuk destructive actions
-
-### Sidebar (dari `admin/layout.tsx:14`)
-Menu "Users" sudah ada di sidebar: `{ label: 'Users', path: '/admin/users', icon: 'user' }`
+- Arsitektur harus tetap: Route -> Service -> DB.
+- Route file dilarang import DB langsung (`@/db`, `drizzle-orm`, schema DB).
+- Semua API route baru/perubahan wajib cek permission via `requirePermission()` (bukan hanya role).
+- Setelah perubahan schema DB: jalankan `npm run db:push`.
 
 ---
 
-## Issue #1 — User Management Service
-**Priority:** P0 (Critical) | **Effort:** M | **Estimate:** 2-3 jam
+## Issue 1 - Security Baseline dan Scope Lock
+
+- Priority: P0
+- Estimasi: 0.5-1 hari
 
 ### Description
-Buat service layer untuk semua business logic user management. Service ini menangani semua query DB, validasi, dan orchestration.
+Membuat baseline agar implementor tidak salah arah: endpoint prioritas, data sensitif, dan urutan rollout.
 
-### Technical Details
+### Technical details
+- Buat daftar endpoint mutasi data (POST/PUT/PATCH/DELETE), lalu tandai endpoint high-risk.
+- Daftar minimal high-risk awal:
+  - `/api/upload`
+  - endpoint auth (`/api/auth/*`)
+  - endpoint admin users (`/api/admin/users*`)
+  - endpoint verifikator beneficiaries (`/api/verifikator/beneficiaries*`)
+- Definisikan data sensitif: NIK, alamat detail, dokumen foto bukti.
 
-**File:** `src/services/user-management.service.ts` (BARU)
-
-**Fungsi yang harus dibuat:**
-
-1. **`listUsers(filters?, pagination?)`**
-   - Input: `{ search?: string, role?: string, isActive?: boolean }`, `{ limit: number, offset: number }`
-   - Query: JOIN users → user_roles → roles, LEFT JOIN untuk include roles
-   - Filter: search (name/email LIKE), role (by role name), isActive
-   - Return: `{ data: UserWithRoles[], total: number }`
-   - Password **TIDAK BOLEH** di-include di response
-
-2. **`getUserById(id)`**
-   - Input: user UUID
-   - Query: JOIN users → user_roles → roles
-   - Return: `UserWithRoles` atau throw Error "User tidak ditemukan"
-   - Password **TIDAK BOLEH** di-include
-
-3. **`createUser(data)`**
-   - Input: `{ name, email, password, phone?, address?, roleIds: string[] }`
-   - Validasi: email unique, minimal 1 role, password min 8 chars
-   - Hash password menggunakan `bcryptjs` (import di service, BUKAN di route)
-   - Insert ke `users`, lalu insert ke `user_roles` untuk setiap roleId
-   - Validasi roleIds ada di database
-   - Return: UserWithRoles (tanpa password)
-
-4. **`updateUser(id, data)`**
-   - Input: `{ name?, email?, phone?, address? }`
-   - Validasi: jika email diubah, cek unique
-   - Update hanya fields yang disediakan (partial update)
-   - Return: UserWithRoles (tanpa password)
-
-5. **`toggleUserActive(id)`**
-   - Flip nilai `isActive` user
-   - Return: { id, isActive }
-
-6. **`assignRoles(userId, roleIds)`**
-   - Input: userId (UUID), roleIds (string[])
-   - Validasi: user exists, semua roleIds exists di database
-   - Hapus semua user_roles lama, insert yang baru (delete + insert dalam satu operasi)
-   - Return: UserWithRoles dengan roles terbaru
-
-7. **`deleteUser(id)`**
-   - Hapus user_roles dulu, lalu hapus user
-   - Validasi: tidak bisa hapus diri sendiri
-   - Return: { id, deleted: true }
-
-**Types yang harus didefinisikan:**
-```typescript
-interface UserFilters {
-  search?: string;
-  role?: string;
-  isActive?: boolean;
-}
-
-interface PaginationParams {
-  limit: number;
-  offset: number;
-}
-
-interface CreateUserInput {
-  name: string;
-  email: string;
-  password: string;
-  phone?: string;
-  address?: string;
-  roleIds: string[];
-}
-
-interface UpdateUserInput {
-  name?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-}
-
-interface UserWithRoles {
-  id: string;
-  name: string;
-  email: string;
-  phone: string | null;
-  address: string | null;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-  roles: { id: string; name: string; description: string | null }[];
-}
-```
-
-**Imports yang dibutuhkan:**
-```typescript
-import { eq, and, count, desc, like, or, sql, ilike } from 'drizzle-orm';
-import { hash } from 'bcryptjs';
-import { db } from '@/db';
-import { users, userRoles } from '@/db/schema/users';
-import { roles } from '@/db/schema/roles';
-```
-
-### Acceptance Criteria
-- [ ] Semua fungsi terdefinisi dengan TypeScript types lengkap
-- [ ] Password tidak pernah di-include di return values
-- [ ] Email uniqueness check sebelum create/update
-- [ ] Role validation sebelum assign
-- [ ] Error messages dalam Bahasa Indonesia
-- [ ] Tidak import `next/server`, `next/navigation`, atau `next/headers`
-- [ ] Gunakan `hash` dari `bcryptjs` untuk password hashing
+### Acceptance criteria
+- [ ] Ada checklist endpoint prioritas beserta owner dan status hardening.
+- [ ] Ada dokumen threat list singkat (CSRF, brute force, file spoofing, data leakage).
+- [ ] Urutan implementasi issue P0 disepakati.
 
 ### Files
-- **CREATE:** `src/services/user-management.service.ts`
+- [agent/issues.md](agent/issues.md) (update status execution)
+- (opsional) [docs/security-hardening.md](docs/security-hardening.md)
 
 ### Dependencies
-- Tidak ada (issue pertama)
+- Tidak ada.
 
 ---
 
-## Issue #2 — Admin Users API (List & Create)
-**Priority:** P0 (Critical) | **Effort:** S | **Estimate:** 1 jam
+## Issue 2 - Harden Upload Authorization + Permission
+
+- Priority: P0
+- Estimasi: 1-2 hari
 
 ### Description
-Buat API route untuk GET (list users) dan POST (create user). Thin controller pattern — parse request, call service, map errors.
+Memastikan upload file bukan sekadar user login, tetapi benar-benar punya izin dan kepemilikan data yang sah.
 
-### Technical Details
+### Technical details
+- Saat ini upload hanya `requireAuth()` di [src/app/api/upload/route.ts](src/app/api/upload/route.ts).
+- Ubah gate menjadi permission-based (`requirePermission`) sesuai aturan proyek.
+- Tambahkan business check di service:
+  - File hanya boleh diupload untuk distribusi milik donatur terkait.
+  - Status distribusi harus valid untuk upload bukti (misalnya `pending_proof`).
+- Jika perlu, tambah permission baru di [src/lib/constants.ts](src/lib/constants.ts), contoh: `DISTRIBUTION_UPLOAD_PROOF`.
 
-**File:** `src/app/api/admin/users/route.ts` (BARU)
-
-**GET handler:**
-```
-GET /api/admin/users?search=xxx&role=admin&isActive=true&limit=20&offset=0
-```
-1. `await requirePermission(PERMISSIONS.USER_READ)`
-2. Parse query params: search, role, isActive, limit (default 20, max 100), offset (default 0)
-3. Call `listUsers(filters, pagination)`
-4. Return: `{ data, pagination: { limit, offset, total } }`
-5. Status: 200
-
-**POST handler:**
-```
-POST /api/admin/users
-Body: { name, email, password, phone?, address?, roleIds }
-```
-1. `await requirePermission(PERMISSIONS.USER_CREATE)`
-2. Parse JSON body
-3. Validasi required fields (name, email, password, roleIds)
-4. Call `createUser(data)`
-5. Return: `{ data: UserWithRoles }`
-6. Status: 201
-
-**Error mapping (SAMA PERSIS pattern existing):**
-- `"UNAUTHORIZED"` → 401
-- `"FORBIDDEN"` → 403
-- `"tidak ditemukan"` → 404
-- `"sudah terdaftar"` / `" sudah digunakan"` → 409
-- default → 500
-
-**Imports yang dibutuhkan:**
-```typescript
-import { NextRequest, NextResponse } from 'next/server';
-import { requirePermission } from '@/lib/auth-utils';
-import { PERMISSIONS } from '@/lib/constants';
-import { listUsers, createUser } from '@/services/user-management.service';
-```
-
-### Acceptance Criteria
-- [ ] GET dengan filter & pagination berfungsi
-- [ ] POST dengan validasi berfungsi
-- [ ] Permission check di kedua handler
-- [ ] Tidak import `@/db`, `drizzle-orm`, `bcryptjs`
-- [ ] Error mapping ke HTTP status yang benar
-- [ ] Response format konsisten: `{ data }` dan `{ data, pagination }`
+### Acceptance criteria
+- [ ] Endpoint upload menolak user tanpa permission dengan HTTP 403.
+- [ ] Endpoint upload menolak jika distribusi bukan milik user.
+- [ ] Endpoint upload menolak jika status distribusi tidak valid.
+- [ ] Tidak ada import DB di route file.
 
 ### Files
-- **CREATE:** `src/app/api/admin/users/route.ts`
+- [src/app/api/upload/route.ts](src/app/api/upload/route.ts)
+- [src/services/upload.service.ts](src/services/upload.service.ts)
+- [src/services/distribution.service.ts](src/services/distribution.service.ts)
+- [src/lib/constants.ts](src/lib/constants.ts)
 
 ### Dependencies
-- Issue #1 (service layer)
+- Issue 1 selesai.
 
 ---
 
-## Issue #3 — Admin User Detail API (GET, PUT, PATCH, DELETE)
-**Priority:** P0 (Critical) | **Effort:** S | **Estimate:** 1-1.5 jam
+## Issue 3 - File Upload Hardening (Server-side Verification)
+
+- Priority: P0
+- Estimasi: 2-3 hari
 
 ### Description
-Buat API route untuk operasi pada single user. GET detail, PUT update profile, PATCH toggle active / assign roles, DELETE user.
+Menutup celah upload file berbahaya dan spoofing MIME type dari client.
 
-### Technical Details
+### Technical details
+- Tambah verifikasi signature file di server (magic number), bukan hanya `file.type`.
+- Rekomendasi library: `file-type`.
+- Validasi minimal:
+  - ukuran maksimum,
+  - MIME allowlist,
+  - extension allowlist,
+  - signature cocok dengan MIME.
+- Simpan file dengan nama acak kuat (UUID/crypto) dan path yang tidak mudah ditebak.
+- Disarankan fase lanjut:
+  - simpan file di private storage (tidak langsung di `public`),
+  - akses file melalui endpoint terproteksi/signed URL.
+- Sanitasi metadata gambar (opsional P1) untuk menghindari kebocoran EXIF.
 
-**File:** `src/app/api/admin/users/[id]/route.ts` (BARU)
-
-**GET handler:**
-```
-GET /api/admin/users/:id
-```
-1. `await requirePermission(PERMISSIONS.USER_READ)`
-2. Call `getUserById(id)`
-3. Return: `{ data: UserWithRoles }`
-4. Status: 200
-
-**PUT handler:**
-```
-PUT /api/admin/users/:id
-Body: { name?, email?, phone?, address? }
-```
-1. `await requirePermission(PERMISSIONS.USER_UPDATE)`
-2. Parse JSON body
-3. Call `updateUser(id, data)`
-4. Return: `{ data: UserWithRoles }`
-5. Status: 200
-
-**PATCH handler (action-based pattern):**
-```
-PATCH /api/admin/users/:id
-Body: { action: 'toggle_active' | 'assign_roles', roleIds?: string[] }
-```
-1. `await requirePermission(PERMISSIONS.USER_UPDATE)`
-2. Untuk action `assign_roles`, tambahkan check: `await requirePermission(PERMISSIONS.USER_ASSIGN_ROLE)`
-3. Parse body, validasi action
-4. Call `toggleUserActive(id)` atau `assignRoles(id, roleIds)`
-5. Return: `{ data }`
-6. Status: 200
-
-**DELETE handler:**
-```
-DELETE /api/admin/users/:id
-```
-1. `await requirePermission(PERMISSIONS.USER_DELETE)`
-2. Call `deleteUser(id)`
-3. Return: `{ data: { id, deleted: true } }`
-4. Status: 200
-
-**Dynamic params pattern (Next.js 15):**
-```typescript
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  // ...
-}
-```
-
-### Acceptance Criteria
-- [ ] GET detail user berfungsi (tanpa password)
-- [ ] PUT update profile berfungsi
-- [ ] PATCH toggle active berfungsi
-- [ ] PATCH assign roles berfungsi
-- [ ] DELETE user berfungsi (tidak bisa hapus diri sendiri)
-- [ ] Permission check yang sesuai di setiap handler
-- [ ] Error mapping ke HTTP status yang benar
-- [ ] Tidak import `@/db`, `drizzle-orm`, `bcryptjs`
+### Acceptance criteria
+- [ ] Upload gagal jika MIME client valid tetapi signature file tidak cocok.
+- [ ] Upload gagal jika ukuran melebihi limit.
+- [ ] Upload hanya menerima jenis file yang diizinkan.
+- [ ] Tes unit untuk validator upload mencakup kasus spoofing.
 
 ### Files
-- **CREATE:** `src/app/api/admin/users/[id]/route.ts`
+- [src/services/upload.service.ts](src/services/upload.service.ts)
+- [src/app/api/upload/route.ts](src/app/api/upload/route.ts)
+- (baru) [src/services/__tests__/upload.service.test.ts](src/services/__tests__/upload.service.test.ts)
 
 ### Dependencies
-- Issue #1 (service layer)
+- Issue 2 selesai.
 
 ---
 
-## Issue #4 — Halaman Kelola User (UI)
-**Priority:** P0 (Critical) | **Effort:** L | **Estimate:** 3-4 jam
+## Issue 4 - Protect NIK at Rest (Encryption + Blind Index)
+
+- Priority: P0
+- Estimasi: 3-5 hari
 
 ### Description
-Buat halaman admin untuk kelola user dengan tabel, search, filter, pagination, dan action modals (create, edit, assign roles, toggle active, delete).
+Menghilangkan penyimpanan NIK plain text sambil tetap mendukung pencarian unik (anti duplikasi).
 
-### Technical Details
+### Technical details
+- Tambah utility crypto terpusat (application layer), contoh:
+  - `encryptNik(plain)` -> ciphertext,
+  - `decryptNik(ciphertext)` -> plain,
+  - `hashNikForLookup(plain)` -> blind index deterministik (HMAC-SHA256).
+- Ubah alur create/update beneficiary:
+  - sebelum simpan: encrypt NIK,
+  - uniqueness check pakai blind index, bukan plain text.
+- Migrasi bertahap:
+  1. Tambah kolom baru: `nik_ciphertext`, `nik_hash`.
+  2. Backfill data lama.
+  3. Tambah unique index pada `nik_hash`.
+  4. Pindahkan read/write ke kolom baru.
+  5. Hapus/abaikan kolom plain jika sudah aman.
+- Simpan key di env (`NIK_ENCRYPTION_KEY`, `NIK_HASH_KEY`) dan rotasi key terdokumentasi.
 
-**File:** `src/app/(dashboard)/admin/users/page.tsx` (BARU)
-
-**Komponen utama (SEMUA dalam satu file, sama pattern `approvals/page.tsx`):**
-
-1. **Header**: Judul "Kelola Pengguna", tombol "+ Tambah User"
-2. **Search bar**: Input search dengan debounce, filter dropdown (role, status aktif)
-3. **Table (desktop)**:
-   - Kolom: Nama, Email, Roles (badge), Status (badge aktif/nonaktif), Aksi
-   - Pagination: "Menampilkan X-Y dari Z"
-   - Tombol prev/next page
-4. **Cards (mobile)**: Sama info, layout vertikal
-5. **Action buttons per row**:
-   - Edit (pencil icon) → buka modal edit
-   - Assign Roles (shield icon) → buka modal roles
-   - Toggle Active (toggle icon)
-   - Delete (trash icon, warna merah) → konfirmasi modal
-6. **Modal: Tambah/Edit User**:
-   - Fields: Nama, Email, Password (hanya saat create), Phone, Address
-   - Validasi client-side
-   - Submit ke POST / PUT API
-7. **Modal: Assign Roles**:
-   - Checkbox list semua roles dari database
-   - Fetch roles dari `/api/admin/users` atau endpoint terpisah
-   - Submit ke PATCH API dengan action `assign_roles`
-8. **Modal: Konfirmasi Delete**:
-   - Pesan peringatan
-   - Tombol batal & hapus
-
-**State management:**
-```typescript
-const [users, setUsers] = useState<UserWithRoles[]>([]);
-const [loading, setLoading] = useState(true);
-const [error, setError] = useState<string | null>(null);
-const [total, setTotal] = useState(0);
-const [search, setSearch] = useState('');
-const [filterRole, setFilterRole] = useState('');
-const [filterActive, setFilterActive] = useState('');
-const [page, setPage] = useState(1);
-const limit = 10;
-
-// Modal states
-const [showCreateModal, setShowCreateModal] = useState(false);
-const [editingUser, setEditingUser] = useState<UserWithRoles | null>(null);
-const [assigningUser, setAssigningUser] = useState<UserWithRoles | null>(null);
-const [deletingUser, setDeletingUser] = useState<UserWithRoles | null>(null);
-const [submitting, setSubmitting] = useState(false);
-```
-
-**Data fetching pattern:**
-```typescript
-useEffect(() => {
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      if (filterRole) params.set('role', filterRole);
-      if (filterActive) params.set('isActive', filterActive);
-      params.set('limit', String(limit));
-      params.set('offset', String((page - 1) * limit));
-      const res = await fetch(`/api/admin/users?${params}`);
-      const json = await res.json();
-      setUsers(json.data || []);
-      setTotal(json.pagination?.total || 0);
-    } catch (err) { ... }
-    finally { setLoading(false); }
-  };
-  fetchUsers();
-}, [search, filterRole, filterActive, page]);
-```
-
-**Role badge styling:**
-```
-admin → bg-red-100 text-red-700
-verifikator → bg-blue-100 text-blue-700
-donatur → bg-green-100 text-green-700
-```
-
-**Status badge styling:**
-```
-aktif → bg-green-100 text-green-700
-nonaktif → bg-gray-100 text-gray-700
-```
-
-### Acceptance Criteria
-- [ ] Tabel users dengan pagination berfungsi
-- [ ] Search dan filter (role, status) berfungsi
-- [ ] Responsive: tabel di desktop, card di mobile
-- [ ] Modal create user berfungsi (dengan password field)
-- [ ] Modal edit user berfungsi (tanpa password field)
-- [ ] Modal assign roles berfungsi (checkbox list)
-- [ ] Toggle active/nonaktif berfungsi
-- [ ] Delete dengan konfirmasi berfungsi
-- [ ] Loading state dan error state ditampilkan
-- [ ] Empty state ketika tidak ada data
-- [ ] Konsisten styling dengan halaman admin lainnya (approvals)
+### Acceptance criteria
+- [ ] Data NIK baru tidak pernah disimpan plain text.
+- [ ] Duplikasi NIK tetap bisa dideteksi via blind index.
+- [ ] Data lama berhasil dimigrasikan.
+- [ ] Akses publik tetap tidak mengekspos NIK.
+- [ ] Dokumen rollback migrasi tersedia.
 
 ### Files
-- **CREATE:** `src/app/(dashboard)/admin/users/page.tsx`
+- [src/db/schema/beneficiaries.ts](src/db/schema/beneficiaries.ts)
+- [src/services/beneficiary.service.ts](src/services/beneficiary.service.ts)
+- (baru) [src/lib/security/nik-crypto.ts](src/lib/security/nik-crypto.ts)
+- (baru) [scripts/migrate-beneficiary-nik-security.ts](scripts/migrate-beneficiary-nik-security.ts)
 
 ### Dependencies
-- Issue #2 (API list & create)
-- Issue #3 (API detail & actions)
+- Issue 1 selesai.
 
 ---
 
-## Dependency Graph
+## Issue 5 - CSRF Protection for State-Changing Requests
 
-```
-Issue #1 (Service)
-  ├── Issue #2 (API List & Create)
-  └── Issue #3 (API Detail)
-         └── Issue #4 (UI Page) ← depends juga #2
-```
+- Priority: P0
+- Estimasi: 1-2 hari
 
-**Recommended execution order:** #1 → #2 → #3 → #4
+### Description
+Mencegah request palsu lintas situs untuk endpoint mutasi data.
+
+### Technical details
+- Implementasi pola double-submit token:
+  - server set cookie CSRF token (HttpOnly=false, SameSite=Lax/Strict sesuai kebutuhan),
+  - client kirim token yang sama via header `x-csrf-token`,
+  - server verifikasi kecocokan cookie vs header.
+- Terapkan validasi CSRF untuk metode POST/PUT/PATCH/DELETE pada API internal.
+- Exclude endpoint tertentu jika memang harus publik read-only.
+- Standarkan helper di lib agar reusable semua route.
+
+### Acceptance criteria
+- [ ] Request mutasi tanpa CSRF token ditolak (403).
+- [ ] Token mismatch ditolak (403).
+- [ ] Request valid tetap berjalan normal.
+- [ ] Ada test integration minimal untuk skenario valid/invalid token.
+
+### Files
+- (baru) [src/lib/security/csrf.ts](src/lib/security/csrf.ts)
+- [src/proxy.ts](src/proxy.ts) atau helper validasi per-route
+- Route mutasi utama di [src/app/api](src/app/api)
+
+### Dependencies
+- Issue 1 selesai.
 
 ---
 
-## Checklist Sebelum Mulai Coding
+## Issue 6 - Global Rate Limiting untuk Endpoint Risky
 
-- [ ] Baca `src/services/access-request.service.ts` sebagai referensi service pattern
-- [ ] Baca `src/app/api/admin/access-requests/route.ts` sebagai referensi API pattern
-- [ ] Baca `src/app/api/admin/access-requests/[id]/route.ts` sebagai referensi detail API pattern
-- [ ] Baca `src/app/(dashboard)/admin/approvals/page.tsx` sebagai referensi UI pattern
-- [ ] Pahami schema `users.ts`, `roles.ts`, `permissions.ts`
-- [ ] Jalankan `rtk npm run db:push` setelah selesai jika ada schema changes (tidak ada di fitur ini)
+- Priority: P0
+- Estimasi: 1-2 hari
+
+### Description
+Mencegah abuse, brute-force, dan spam request pada endpoint kritikal.
+
+### Technical details
+- Terapkan rate limiter terpusat di lib (`key` berdasarkan user id + IP).
+- Prioritas endpoint:
+  - `/api/upload`
+  - `/api/auth/login`
+  - `/api/auth/register`
+  - endpoint mutasi admin/verifikator yang sensitif.
+- Response standar saat limit terlampaui:
+  - HTTP 429,
+  - header `Retry-After`,
+  - pesan error konsisten.
+- Rekomendasi backend store: Redis (untuk multi-instance). In-memory hanya untuk local dev.
+
+### Acceptance criteria
+- [ ] Endpoint prioritas mengembalikan 429 saat limit terlampaui.
+- [ ] Rate limiter konsisten antar route (helper tunggal).
+- [ ] Metrik hit/blocked tercatat di log.
+
+### Files
+- (baru) [src/lib/security/rate-limit.ts](src/lib/security/rate-limit.ts)
+- [src/app/api/upload/route.ts](src/app/api/upload/route.ts)
+- Endpoint auth/admin/verifikator di [src/app/api](src/app/api)
+
+### Dependencies
+- Issue 1 selesai.
 
 ---
 
-## Catatan untuk Implementor
+## Issue 7 - Standardisasi Validasi Input dengan Zod
 
-1. **Jangan lupa**: Sidebar menu "Users" sudah ada di `admin/layout.tsx:14`, tidak perlu ditambahkan
-2. **API route constant** `ADMIN_USERS: '/api/admin/users'` sudah ada di `constants.ts:34`
-3. **Permission constants** sudah ada di `constants.ts:65-70`
-4. **Password hashing** hanya boleh dilakukan di service layer, gunakan `import { hash } from 'bcryptjs'`
-5. **JANGAN** pernah return password field di API response
-6. **Ikuti pattern error handling** yang sudah ada — lihat `access-requests` routes
-7. **Gunakan `"use client"`** untuk halaman UI karena butuh interactivity
-8. **Tidak ada schema change** di fitur ini — semua tabel sudah ada
+- Priority: P0
+- Estimasi: 3-4 hari
+
+### Description
+Menyatukan validasi agar tidak duplikasi manual di setiap route/service dan menjaga konsistensi client-server.
+
+### Technical details
+- Pilih satu library utama: Zod.
+- Buat struktur schema terpusat, contoh:
+  - `src/lib/validation/common.schema.ts`
+  - `src/lib/validation/beneficiary.schema.ts`
+  - `src/lib/validation/user.schema.ts`
+  - `src/lib/validation/upload.schema.ts`
+- Gunakan pattern parse tunggal:
+  - Route parse request -> pass data typed ke service.
+  - Service hanya validasi business rules lanjutan.
+- Refactor endpoint yang saat ini validasi manual:
+  - [src/app/api/verifikator/beneficiaries/route.ts](src/app/api/verifikator/beneficiaries/route.ts)
+  - [src/app/api/verifikator/beneficiaries/[id]/route.ts](src/app/api/verifikator/beneficiaries/[id]/route.ts)
+  - [src/app/api/admin/users/route.ts](src/app/api/admin/users/route.ts)
+  - [src/app/api/admin/users/[id]/route.ts](src/app/api/admin/users/[id]/route.ts)
+- Optional: share schema ke client form agar pesan error konsisten.
+
+### Acceptance criteria
+- [ ] Validasi input route prioritas memakai schema Zod.
+- [ ] Tidak ada lagi regex/manual validation duplikatif untuk field yang sama.
+- [ ] Error response validasi konsisten (format dan status code).
+- [ ] TypeScript inference dari schema dipakai di service input type.
+
+### Files
+- (baru) [src/lib/validation](src/lib/validation)
+- Route API prioritas di [src/app/api](src/app/api)
+- Service yang menerima input typed di [src/services](src/services)
+
+### Dependencies
+- Issue 1 selesai.
+
+---
+
+## Issue 8 - Unified Error Mapping + Test Coverage
+
+- Priority: P1
+- Estimasi: 2-3 hari
+
+### Description
+Menstandarkan format error lintas route dan menambah tes regresi untuk security + validation.
+
+### Technical details
+- Buat helper mapping error -> HTTP response (401/403/404/409/422/429/500).
+- Tambah test minimal:
+  - Unit test validator Zod,
+  - Unit test upload signature validation,
+  - Integration test CSRF/rate limit,
+  - Test NIK encryption path.
+- Gunakan pola test yang sudah ada di [src/services/__tests__/distribution.service.test.ts](src/services/__tests__/distribution.service.test.ts).
+
+### Acceptance criteria
+- [ ] Error shape API konsisten lintas route prioritas.
+- [ ] Test baru lulus di CI.
+- [ ] Kasus negatif penting (spoofed file, CSRF missing, rate limit hit, NIK duplicate) tercakup.
+
+### Files
+- (baru) [src/lib/http/error-mapper.ts](src/lib/http/error-mapper.ts)
+- [src/services/__tests__](src/services/__tests__)
+- [e2e](e2e)
+
+### Dependencies
+- Issue 2, 3, 4, 5, 6, 7 selesai.
+
+---
+
+## Urutan Eksekusi yang Disarankan (untuk Junior)
+
+1. Kerjakan Issue 1 dulu (scope lock).
+2. Paralel terbatas: Issue 2, 5, 6 (authz + csrf + rate limit).
+3. Lanjut Issue 3 (upload hardening) karena bergantung authz.
+4. Jalankan Issue 4 (NIK encryption) dengan migration plan hati-hati.
+5. Refactor validasi dengan Issue 7.
+6. Tutup dengan Issue 8 (error unifikasi + test).
+
+## Definition of Done (Global)
+
+- [ ] Tidak ada blocker keamanan P0 tersisa.
+- [ ] NIK tidak tersimpan plain text.
+- [ ] Endpoint mutasi terlindungi CSRF + rate limit.
+- [ ] Upload tervalidasi server-side (bukan MIME client saja).
+- [ ] Validasi input terpusat (Zod) untuk endpoint prioritas.
+- [ ] Semua perubahan lolos lint/test.
