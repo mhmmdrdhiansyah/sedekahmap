@@ -43,7 +43,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   // ---- Session Strategy ----
   session: {
     strategy: 'jwt', // Gunakan JWT, bukan database session
-    maxAge: 24 * 60 * 60, // 24 jam
+    maxAge: 30 * 60, // 30 menit
+  },
+
+  // ---- JWT ----
+  jwt: {
+    maxAge: 30 * 60, // 30 menit
   },
 
   // ---- Custom Pages ----
