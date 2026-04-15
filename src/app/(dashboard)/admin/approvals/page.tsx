@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/Button";
+import { StatusBadge } from "@/components/ui/Badge";
+import { Table, ColumnDef } from "@/components/ui/Table";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/ToastProvider";
 
 // ============================================================
 // TYPES
@@ -42,12 +47,6 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Ditolak",
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  approved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-};
-
 const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "pending", label: "Menunggu" },
   { value: "approved", label: "Disetujui" },
@@ -59,6 +58,8 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
 // ============================================================
 
 export default function AdminApprovalsPage() {
+  const { showSuccess, showError } = useToast();
+
   const [activeFilter, setActiveFilter] = useState<StatusFilter>("pending");
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,6 +155,37 @@ export default function AdminApprovalsPage() {
     setRejectionReason("");
   };
 
+  // Refresh data helper
+  const refreshData = async () => {
+    // Refresh current list
+    const params = new URLSearchParams({
+      status: activeFilter,
+      limit: "50",
+    });
+
+    const res = await fetch(`/api/admin/access-requests?${params}`);
+    const json = await res.json();
+    setRequests(json.data || []);
+    setTotal(json.pagination?.total || 0);
+
+    // Refresh all counts
+    const statuses: StatusFilter[] = ["pending", "approved", "rejected"];
+    const countPromises = statuses.map(async (status) => {
+      const countParams = new URLSearchParams({ status, limit: "1" });
+      const countRes = await fetch(`/api/admin/access-requests?${countParams}`);
+      if (!countRes.ok) return { status, count: 0 };
+      const countJson = await countRes.json();
+      return { status, count: countJson.pagination?.total || 0 };
+    });
+
+    const countResults = await Promise.all(countPromises);
+    const newCounts = { pending: 0, approved: 0, rejected: 0 };
+    countResults.forEach(({ status, count }) => {
+      newCounts[status] = count;
+    });
+    setCounts(newCounts);
+  };
+
   // Confirm action
   const handleConfirm = async () => {
     if (!selectedId) return;
@@ -176,41 +208,86 @@ export default function AdminApprovalsPage() {
         throw new Error(data.error || "Gagal memproses permintaan");
       }
 
-      // Refresh data
-      const params = new URLSearchParams({
-        status: activeFilter,
-        limit: "50",
-      });
-
-      const res = await fetch(`/api/admin/access-requests?${params}`);
-      const json = await res.json();
-      setRequests(json.data || []);
-      setTotal(json.pagination?.total || 0);
-
-      // Refresh all counts
-      const statuses: StatusFilter[] = ["pending", "approved", "rejected"];
-      const countPromises = statuses.map(async (status) => {
-        const countParams = new URLSearchParams({ status, limit: "1" });
-        const countRes = await fetch(`/api/admin/access-requests?${countParams}`);
-        if (!countRes.ok) return { status, count: 0 };
-        const countJson = await countRes.json();
-        return { status, count: countJson.pagination?.total || 0 };
-      });
-
-      const countResults = await Promise.all(countPromises);
-      const newCounts = { pending: 0, approved: 0, rejected: 0 };
-      countResults.forEach(({ status, count }) => {
-        newCounts[status] = count;
-      });
-      setCounts(newCounts);
-
+      await refreshData();
+      showSuccess(actionType === "approve" ? "Permintaan disetujui" : "Permintaan ditolak");
       setSelectedId(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Gagal memproses permintaan");
+      showError(err instanceof Error ? err.message : "Gagal memproses permintaan");
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Table columns definition
+  const columns: ColumnDef<AccessRequest>[] = [
+    {
+      key: "donatur",
+      header: "Donatur",
+      render: (_, row) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900">{row.donatur.name}</div>
+          <div className="text-sm text-gray-500">{row.donatur.email}</div>
+        </div>
+      ),
+    },
+    {
+      key: "beneficiary",
+      header: "Target",
+      render: (_, row) => (
+        <div>
+          <div className="text-sm text-gray-900">{row.beneficiary.name}</div>
+          <div className="text-sm text-gray-500">{row.beneficiary.regionName || "-"}</div>
+        </div>
+      ),
+    },
+    {
+      key: "intention",
+      header: "Niat",
+      render: (value) => (
+        <div className="text-sm text-gray-900 max-w-xs truncate">{value as string}</div>
+      ),
+    },
+    {
+      key: "createdAt",
+      header: "Tanggal",
+      render: (value) => (
+        <span className="text-sm text-gray-600">{formatDate(value as Date)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (value) => (
+        <StatusBadge status={STATUS_LABELS[value as string] || value as string} />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Aksi",
+      render: (_, row) => (
+        row.status === "pending" ? (
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-green-700 border-green-200 hover:bg-green-50"
+              onClick={() => handleActionClick(row.id, "approve")}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-red-700 border-red-200 hover:bg-red-50"
+              onClick={() => handleActionClick(row.id, "reject")}
+            >
+              Reject
+            </Button>
+          </div>
+        ) : null
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -241,222 +318,53 @@ export default function AdminApprovalsPage() {
         ))}
       </div>
 
-      {/* Content */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm text-gray-600 mt-2">Memuat data...</p>
-          </div>
-        ) : error ? (
-          <div className="bg-error/10 text-error px-4 py-3 text-center">
-            {error}
-          </div>
-        ) : requests.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-              <svg
-                className="w-8 h-8 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-            </div>
-            <p className="text-gray-600">Tidak ada permintaan akses</p>
-          </div>
-        ) : (
-          <>
-            {/* Table - Desktop */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Donatur
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Target
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Niat
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tanggal
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Aksi
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {requests.map((request) => (
-                    <tr key={request.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {request.donatur.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {request.donatur.email}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">
-                          {request.beneficiary.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {request.beneficiary.regionName || "-"}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900 max-w-xs truncate">
-                          {request.intention}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {formatDate(request.createdAt)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            STATUS_STYLES[request.status] || "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {STATUS_LABELS[request.status] || request.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm font-medium">
-                        {request.status === "pending" && (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleActionClick(request.id, "approve")}
-                              className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleActionClick(request.id, "reject")}
-                              className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Cards - Mobile */}
-            <div className="md:hidden divide-y divide-gray-100">
-              {requests.map((request) => (
-                <div key={request.id} className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">
-                        {request.donatur.name}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {request.beneficiary.name}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        STATUS_STYLES[request.status] || "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {STATUS_LABELS[request.status] || request.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-                    {request.intention}
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">
-                      {formatDate(request.createdAt)}
-                    </span>
-                    {request.status === "pending" && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleActionClick(request.id, "approve")}
-                          className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleActionClick(request.id, "reject")}
-                          className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      {/* Table */}
+      <Table
+        data={requests}
+        columns={columns}
+        keyExtractor={(request) => request.id}
+        loading={loading}
+        error={error || undefined}
+        emptyMessage="Tidak ada permintaan akses"
+      />
 
       {/* Confirmation Modal */}
       {selectedId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900">
-              {actionType === "approve" ? "Setujui Permintaan?" : "Tolak Permintaan?"}
-            </h3>
-            {actionType === "reject" && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Alasan Penolakan (opsional)
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  rows={3}
-                  placeholder="Jelaskan alasan penolakan..."
-                />
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setSelectedId(null)}
-                disabled={submitting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
-              >
+        <Modal
+          isOpen={!!selectedId}
+          onClose={() => setSelectedId(null)}
+          title={actionType === "approve" ? "Setujui Permintaan?" : "Tolak Permintaan?"}
+          size="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setSelectedId(null)} disabled={submitting}>
                 Batal
-              </button>
-              <button
+              </Button>
+              <Button
+                variant={actionType === "approve" ? "primary" : "destructive"}
                 onClick={handleConfirm}
-                disabled={submitting}
-                className={`px-4 py-2 rounded-lg text-white transition-colors disabled:opacity-50 ${
-                  actionType === "approve"
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-red-600 hover:bg-red-700"
-                }`}
+                isLoading={submitting}
               >
-                {submitting
-                  ? "Memproses..."
-                  : actionType === "approve"
-                  ? "Ya, Setujui"
-                  : "Ya, Tolak"}
-              </button>
+                {actionType === "approve" ? "Ya, Setujui" : "Ya, Tolak"}
+              </Button>
+            </>
+          }
+        >
+          {actionType === "reject" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Alasan Penolakan (opsional)
+              </label>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                rows={3}
+                placeholder="Jelaskan alasan penolakan..."
+              />
             </div>
-          </div>
-        </div>
+          )}
+        </Modal>
       )}
     </div>
   );

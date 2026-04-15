@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/Button";
+import { StatusBadge } from "@/components/ui/Badge";
+import { Table, ColumnDef } from "@/components/ui/Table";
+import { Modal } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/ToastProvider";
 
 // ============================================================
 // TYPES
@@ -45,12 +50,6 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Ditolak",
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  pending_review: "bg-yellow-100 text-yellow-700",
-  completed: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
-};
-
 const FILTERS: { value: StatusFilter; label: string }[] = [
   { value: "pending_review", label: "Menunggu Review" },
   { value: "completed", label: "Terverifikasi" },
@@ -62,6 +61,8 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
 // ============================================================
 
 export default function AdminDistributionsPage() {
+  const { showSuccess, showError } = useToast();
+
   const [activeFilter, setActiveFilter] = useState<StatusFilter>("pending_review");
   const [distributions, setDistributions] = useState<Distribution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -214,15 +215,114 @@ export default function AdminDistributionsPage() {
         throw new Error(data.error || "Gagal memproses distribusi");
       }
 
-      // Refresh data and counts
       await Promise.all([refreshData(), refreshCounts()]);
+      showSuccess(actionType === "verify" ? "Distribusi diverifikasi" : "Distribusi ditolak");
       setSelectedId(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Gagal memproses distribusi");
+      showError(err instanceof Error ? err.message : "Gagal memproses distribusi");
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Photo preview component
+  const PhotoPreview = ({ url }: { url: string | null }) => {
+    if (!url) {
+      return (
+        <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center">
+          <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+      );
+    }
+
+    return (
+      <img
+        src={url}
+        alt="Bukti penyaluran"
+        className="w-16 h-16 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+        onClick={() => setPhotoPreview(url)}
+      />
+    );
+  };
+
+  // Table columns definition
+  const columns: ColumnDef<Distribution>[] = [
+    {
+      key: "donatur",
+      header: "Donatur",
+      render: (_, row) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900">{row.donatur.name}</div>
+          <div className="text-sm text-gray-500">{row.donatur.email}</div>
+        </div>
+      ),
+    },
+    {
+      key: "beneficiary",
+      header: "Penerima",
+      render: (_, row) => (
+        <div>
+          <div className="text-sm text-gray-900">{row.beneficiary.name}</div>
+          <div className="text-sm text-gray-500">{row.beneficiary.regionName || "-"}</div>
+        </div>
+      ),
+    },
+    {
+      key: "distributionCode",
+      header: "Kode",
+      render: (value) => (
+        <span className="text-sm font-mono text-gray-700 bg-gray-50 px-2 py-1 rounded">{value as string}</span>
+      ),
+    },
+    {
+      key: "proofPhotoUrl",
+      header: "Bukti Foto",
+      render: (_, row) => <PhotoPreview url={row.proofPhotoUrl} />,
+    },
+    {
+      key: "createdAt",
+      header: "Tanggal",
+      render: (value) => (
+        <span className="text-sm text-gray-600">{formatDate(value as Date)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (value) => (
+        <StatusBadge status={STATUS_LABELS[value as string] || value as string} />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Aksi",
+      render: (_, row) => (
+        row.status === "pending_review" ? (
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-green-700 border-green-200 hover:bg-green-50"
+              onClick={() => handleActionClick(row.id, "verify")}
+            >
+              Terverifikasi
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-red-700 border-red-200 hover:bg-red-50"
+              onClick={() => handleActionClick(row.id, "reject")}
+            >
+              Tolak
+            </Button>
+          </div>
+        ) : null
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -253,283 +353,68 @@ export default function AdminDistributionsPage() {
         ))}
       </div>
 
-      {/* Content */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-sm text-gray-600 mt-2">Memuat data...</p>
-          </div>
-        ) : error ? (
-          <div className="bg-error/10 text-error px-4 py-3 text-center">
-            {error}
-          </div>
-        ) : distributions.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-              <svg
-                className="w-8 h-8 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-            </div>
-            <p className="text-gray-600">Tidak ada data penyaluran</p>
-          </div>
-        ) : (
-          <>
-            {/* Table - Desktop */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Donatur
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Penerima
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Kode
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Bukti Foto
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Tanggal
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Aksi
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {distributions.map((dist) => (
-                    <tr key={dist.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">
-                          {dist.donatur.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {dist.donatur.email}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">
-                          {dist.beneficiary.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {dist.beneficiary.regionName || "-"}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-mono text-gray-700 bg-gray-50 px-2 py-1 rounded">
-                          {dist.distributionCode}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {dist.proofPhotoUrl ? (
-                          <img
-                            src={dist.proofPhotoUrl}
-                            alt="Bukti penyaluran"
-                            className="w-16 h-16 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                            onClick={() => setPhotoPreview(dist.proofPhotoUrl)}
-                          />
-                        ) : (
-                          <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center">
-                            <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {formatDate(dist.createdAt)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            STATUS_STYLES[dist.status] || "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {STATUS_LABELS[dist.status] || dist.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm font-medium">
-                        {dist.status === "pending_review" && (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleActionClick(dist.id, "verify")}
-                              className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
-                            >
-                              Terverifikasi
-                            </button>
-                            <button
-                              onClick={() => handleActionClick(dist.id, "reject")}
-                              className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
-                            >
-                              Tolak
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Cards - Mobile */}
-            <div className="md:hidden divide-y divide-gray-100">
-              {distributions.map((dist) => (
-                <div key={dist.id} className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">
-                        {dist.donatur.name}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {dist.beneficiary.name}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        STATUS_STYLES[dist.status] || "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {STATUS_LABELS[dist.status] || dist.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-mono text-gray-700 bg-gray-50 px-2 py-1 rounded">
-                      {dist.distributionCode}
-                    </span>
-                    {dist.proofPhotoUrl ? (
-                      <img
-                        src={dist.proofPhotoUrl}
-                        alt="Bukti penyaluran"
-                        className="w-12 h-12 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setPhotoPreview(dist.proofPhotoUrl)}
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
-                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">
-                      {formatDate(dist.createdAt)}
-                    </span>
-                    {dist.status === "pending_review" && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleActionClick(dist.id, "verify")}
-                          className="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 transition-colors"
-                        >
-                          Terverifikasi
-                        </button>
-                        <button
-                          onClick={() => handleActionClick(dist.id, "reject")}
-                          className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
-                        >
-                          Tolak
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      {/* Table */}
+      <Table
+        data={distributions}
+        columns={columns}
+        keyExtractor={(dist) => dist.id}
+        loading={loading}
+        error={error || undefined}
+        emptyMessage="Tidak ada data penyaluran"
+      />
 
       {/* Confirmation Modal */}
       {selectedId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900">
-              {actionType === "verify" ? "Verifikasi Penyaluran?" : "Tolak Penyaluran?"}
-            </h3>
-            {actionType === "reject" && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Catatan (opsional)
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  rows={3}
-                  placeholder="Tambahkan catatan..."
-                />
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setSelectedId(null)}
-                disabled={submitting}
-                className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
-              >
+        <Modal
+          isOpen={!!selectedId}
+          onClose={() => setSelectedId(null)}
+          title={actionType === "verify" ? "Verifikasi Penyaluran?" : "Tolak Penyaluran?"}
+          size="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setSelectedId(null)} disabled={submitting}>
                 Batal
-              </button>
-              <button
+              </Button>
+              <Button
+                variant={actionType === "verify" ? "primary" : "destructive"}
                 onClick={handleConfirm}
-                disabled={submitting}
-                className={`px-4 py-2 rounded-lg text-white transition-colors disabled:opacity-50 ${
-                  actionType === "verify"
-                    ? "bg-green-600 hover:bg-green-700"
-                    : "bg-red-600 hover:bg-red-700"
-                }`}
+                isLoading={submitting}
               >
-                {submitting
-                  ? "Memproses..."
-                  : actionType === "verify"
-                  ? "Ya, Verifikasi"
-                  : "Ya, Tolak"}
-              </button>
+                {actionType === "verify" ? "Ya, Verifikasi" : "Ya, Tolak"}
+              </Button>
+            </>
+          }
+        >
+          {actionType === "reject" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Catatan (opsional)
+              </label>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                rows={3}
+                placeholder="Tambahkan catatan..."
+              />
             </div>
-          </div>
-        </div>
+          )}
+        </Modal>
       )}
 
       {/* Photo Preview Modal */}
       {photoPreview && (
-        <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-          onClick={() => setPhotoPreview(null)}
+        <Modal
+          isOpen={!!photoPreview}
+          onClose={() => setPhotoPreview(null)}
+          size="xl"
         >
-          <button
-            onClick={() => setPhotoPreview(null)}
-            className="absolute top-4 right-4 text-white/80 hover:text-white transition-colors"
-          >
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
           <img
             src={photoPreview}
             alt="Bukti penyaluran"
-            className="max-w-full max-h-[90vh] object-contain rounded-lg"
-            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[70vh] object-contain rounded-lg"
           />
-        </div>
+        </Modal>
       )}
     </div>
   );
