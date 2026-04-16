@@ -4,6 +4,7 @@ import {
   varchar,
   text,
   boolean,
+  integer,
   timestamp,
   index,
 } from 'drizzle-orm/pg-core';
@@ -21,6 +22,10 @@ export const users = pgTable('users', {
   address: text('address'),
   isActive: boolean('is_active').default(true).notNull(),
   emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+  // Account lockout fields
+  failedLoginAttempts: integer('failed_login_attempts').default(0).notNull(),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  lastFailedLoginAt: timestamp('last_failed_login_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

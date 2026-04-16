@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { reviews } from '@/db/schema/reviews';
@@ -183,7 +183,7 @@ export async function getReviewsByDonaturId(
 
   // Get total count
   const [countResult] = await db
-    .select({ total: reviews.id })
+    .select({ total: count() })
     .from(reviews)
     .where(eq(reviews.donaturId, donaturId));
 

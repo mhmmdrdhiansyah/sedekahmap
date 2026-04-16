@@ -11,10 +11,10 @@ vi.mock('@/db', () => ({
   },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
+// Mock bcrypt
+vi.mock('bcrypt', () => ({
   default: {
-    hash: vi.fn().mockResolvedValue('$2a$12$hashedpassword'),
+    hash: vi.fn().mockResolvedValue('$2b$12$hashedpassword'),
   },
 }));
 
@@ -71,16 +71,16 @@ describe('user.service', () => {
       expect(errors[0].message).toContain('Email');
     });
 
-    it('returns error for password shorter than 6 characters', () => {
+    it('returns error for password shorter than 8 characters', () => {
       const errors = validateRegisterInput({
         name: 'Ahmad',
         email: 'ahmad@example.com',
-        password: '12345',
+        password: '1234567',
       });
 
       expect(errors).toHaveLength(1);
       expect(errors[0].message).toContain('Password');
-      expect(errors[0].message).toContain('6 karakter');
+      expect(errors[0].message).toContain('8 karakter');
     });
 
     it('returns multiple errors for multiple invalid fields', () => {

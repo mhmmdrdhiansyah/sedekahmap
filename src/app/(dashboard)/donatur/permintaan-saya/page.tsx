@@ -48,7 +48,7 @@ const FILTERS: { value: StatusFilter; label: string }[] = [
 ];
 
 export default function PermintaanSayaPage() {
-  const { showSuccess, showError, confirm } = useToast();
+  const { showSuccess, showError } = useToast();
 
   const [activeFilter, setActiveFilter] = useState<StatusFilter>("all");
   const [requests, setRequests] = useState<AccessRequest[]>([]);
@@ -302,17 +302,7 @@ export default function PermintaanSayaPage() {
         keyExtractor={(request) => request.id}
         loading={loading}
         error={error || undefined}
-        emptyMessage={
-          <div className="text-center">
-            <p className="text-gray-600 mb-4">Belum ada permintaan akses</p>
-            <a
-              href="/donatur/cari-target"
-              className="inline-block text-primary font-medium hover:underline"
-            >
-              Cari penerima manfaat →
-            </a>
-          </div>
-        }
+        emptyMessage="Belum ada permintaan akses"
         pagination={
           total > limit
             ? {
@@ -324,6 +314,19 @@ export default function PermintaanSayaPage() {
             : undefined
         }
       />
+
+      {/* Empty State CTA */}
+      {!loading && requestsWithIndex.length === 0 && (
+        <div className="text-center py-12 bg-white border border-gray-200 rounded-lg">
+          <p className="text-gray-600 mb-2">Belum ada permintaan akses</p>
+          <a
+            href="/donatur/cari-target"
+            className="inline-block text-primary font-medium hover:underline"
+          >
+            Cari penerima manfaat →
+          </a>
+        </div>
+      )}
 
       {/* Modal for viewing intention */}
       <Modal

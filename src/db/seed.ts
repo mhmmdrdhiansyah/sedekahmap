@@ -6,7 +6,8 @@ import postgres from 'postgres';
 import { roles, rolePermissions } from './schema/roles';
 import { permissions } from './schema/permissions';
 import { users, userRoles } from './schema/users';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
+import { SECURITY } from '@/lib/constants';
 
 // ============================================================
 // KONEKSI DATABASE (terpisah dari app, karena ini script standalone)
@@ -166,7 +167,7 @@ async function seed() {
   // --- 4. Insert Sample Users ---
   console.log('👤 Inserting sample users...');
   for (const userData of SAMPLE_USERS) {
-    const hashedPassword = await bcrypt.hash(userData.password, 12);
+    const hashedPassword = await bcrypt.hash(userData.password, SECURITY.BCRYPT_SALT_ROUNDS);
 
     const [insertedUser] = await db
       .insert(users)
