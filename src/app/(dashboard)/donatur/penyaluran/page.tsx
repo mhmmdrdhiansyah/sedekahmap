@@ -362,20 +362,7 @@ export default function PenyaluranPage() {
         keyExtractor={(dist) => dist.id}
         loading={loading}
         error={error || undefined}
-        emptyMessage={
-          <div className="text-center">
-            <p className="text-gray-600 mb-2">Belum ada penyaluran</p>
-            <p className="text-sm text-gray-500 mb-4">
-              Mulai sedekah dengan mencari penerima manfaat terlebih dahulu
-            </p>
-            <Link
-              href="/donatur/cari-target"
-              className="inline-block text-emerald-700 font-medium hover:underline"
-            >
-              Cari Penerima Manfaat →
-            </Link>
-          </div>
-        }
+        emptyMessage="Belum ada penyaluran"
         pagination={
           total > limit
             ? {
@@ -387,6 +374,22 @@ export default function PenyaluranPage() {
             : undefined
         }
       />
+
+      {/* Empty State CTA */}
+      {!loading && distributions.length === 0 && (
+        <div className="text-center py-12 bg-white border border-gray-200 rounded-lg">
+          <p className="text-gray-600 mb-2">Belum ada penyaluran</p>
+          <p className="text-sm text-gray-500 mb-4">
+            Mulai sedekah dengan mencari penerima manfaat terlebih dahulu
+          </p>
+          <Link
+            href="/donatur/cari-target"
+            className="inline-block text-emerald-700 font-medium hover:underline"
+          >
+            Cari Penerima Manfaat →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

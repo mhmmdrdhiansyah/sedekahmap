@@ -38,8 +38,8 @@ export default function RegisterPage() {
       errors.push('Email tidak valid');
     }
 
-    if (formData.password.length < 6) {
-      errors.push('Password harus minimal 6 karakter');
+    if (formData.password.length < 8) {
+      errors.push('Password harus minimal 8 karakter');
     }
 
     if (formData.password !== formData.confirmPassword) {
@@ -233,7 +233,7 @@ export default function RegisterPage() {
             value={formData.password}
             onChange={handleChange}
             className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-colors text-gray-900"
-            placeholder="Minimal 6 karakter"
+            placeholder="Minimal 8 karakter"
             disabled={isLoading}
           />
         </div>

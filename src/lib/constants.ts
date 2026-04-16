@@ -106,3 +106,28 @@ export const MAP_CONFIG = {
   MIN_ZOOM: 3,
   MAX_ZOOM: 18,
 } as const;
+
+// ============================================================
+// SECURITY POLICY
+// ============================================================
+export const SECURITY = {
+  // Password
+  PASSWORD_MIN_LENGTH: 8,
+  BCRYPT_SALT_ROUNDS: 12,
+
+  // Account Lockout
+  MAX_LOGIN_ATTEMPTS: 5,
+  ACCOUNT_LOCK_MINUTES: 15,
+
+  // Email Verification
+  EMAIL_VERIFY_TOKEN_TTL_HOURS: 24,
+
+  // Password Reset
+  PASSWORD_RESET_TOKEN_TTL_MINUTES: 30,
+
+  // Rate Limiting (requests per window)
+  RATE_LIMIT: {
+    AUTH_LOGIN: { limit: 5, windowMinutes: 15 },
+    AUTH_REGISTER: { limit: 3, windowMinutes: 60 },
+  },
+} as const;

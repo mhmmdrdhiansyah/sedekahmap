@@ -394,7 +394,20 @@ export interface ExpireResult {
  * Kondisi: status = 'verified' AND expiresAt IS NOT NULL AND expiresAt < NOW()
  */
 export async function expireOverdueBeneficiaries(): Promise<ExpireResult> {
-  const result = await db
+  // First count the records to be updated
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(beneficiaries)
+    .where(
+      and(
+        eq(beneficiaries.status, STATUS.BENEFICIARY.VERIFIED),
+        isNotNull(beneficiaries.expiresAt),
+        lt(beneficiaries.expiresAt, sql`NOW()`)
+      )
+    );
+
+  // Then perform the update
+  await db
     .update(beneficiaries)
     .set({
       status: STATUS.BENEFICIARY.EXPIRED,
@@ -408,7 +421,7 @@ export async function expireOverdueBeneficiaries(): Promise<ExpireResult> {
       )
     );
 
-  return { updatedCount: result.rowCount ?? 0 };
+  return { updatedCount: countResult?.count ?? 0 };
 }
 
 export interface ExpiredBeneficiaryStats {
@@ -439,7 +452,7 @@ export async function getExpiredBeneficiaryStats(): Promise<ExpiredBeneficiarySt
       and(
         eq(beneficiaries.status, STATUS.BENEFICIARY.VERIFIED),
         isNotNull(beneficiaries.expiresAt),
-        lt(beneficiaries.expiresAt, sevenDaysFromNow.toISOString())
+        lt(beneficiaries.expiresAt, sevenDaysFromNow)
       )
     );
 

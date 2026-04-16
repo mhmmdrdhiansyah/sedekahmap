@@ -7,9 +7,10 @@ import { users } from './schema/users';
 import { beneficiaries } from './schema/beneficiaries';
 import { accessRequests } from './schema/accessRequests';
 import { distributions } from './schema/distributions';
-import { STATUS } from '@/lib/constants';
-import bcrypt from 'bcryptjs';
+import { STATUS, SECURITY } from '@/lib/constants';
+import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 
 // ============================================================
 // KONEKSI DATABASE
@@ -30,13 +31,13 @@ async function seedAdminDistributionTest() {
   const [adminUser] = await db
     .select()
     .from(users)
-    .where((users) => users.email === 'admin@sedekahmap.id')
+    .where(eq(users.email, 'admin@sedekahmap.id'))
     .limit(1);
 
   let adminId = adminUser?.id;
 
   if (!adminId) {
-    const hashedPassword = await bcrypt.hash('admin123', 12);
+    const hashedPassword = await bcrypt.hash('admin123', SECURITY.BCRYPT_SALT_ROUNDS);
     const [insertedAdmin] = await db
       .insert(users)
       .values({
@@ -59,13 +60,13 @@ async function seedAdminDistributionTest() {
   const [donaturUser] = await db
     .select()
     .from(users)
-    .where((users) => users.email === 'donatur@test.id')
+    .where(eq(users.email, 'donatur@test.id'))
     .limit(1);
 
   let donaturId = donaturUser?.id;
 
   if (!donaturId) {
-    const hashedPassword = await bcrypt.hash('donatur123', 12);
+    const hashedPassword = await bcrypt.hash('donatur123', SECURITY.BCRYPT_SALT_ROUNDS);
     const [insertedDonatur] = await db
       .insert(users)
       .values({
@@ -91,13 +92,12 @@ async function seedAdminDistributionTest() {
       nik: '1234567890123456', // NIK dummy (16 digit)
       name: 'Bapak Ahmad',
       needs: 'Sembako',
-      amountNeeded: 500000,
       regionCode: '320101', // Jakarta Pusat
       regionName: 'DKI Jakarta - Jakarta Pusat',
       address: 'Jl. Test No. 123',
       status: STATUS.BENEFICIARY.IN_PROGRESS,
-      submittedByName: 'Verifikator Test',
-      submittedByContact: 'verifikator@test.id',
+      verifiedById: adminId,
+      verifiedAt: new Date(),
       latitude: -6.2088,
       longitude: 106.8456,
     })
@@ -188,7 +188,7 @@ async function seedAdminDistributionTest() {
       status: STATUS.BENEFICIARY.COMPLETED,
       updatedAt: new Date(),
     })
-    .where((beneficiaries) => beneficiaries.id === beneficiary.id);
+    .where(eq(beneficiaries.id, beneficiary.id));
 
   console.log(`   ✅ Beneficiary status updated to completed`);
 

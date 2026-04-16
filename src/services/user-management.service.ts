@@ -1,9 +1,10 @@
 import { eq, and, or, count, desc, SQL, like, inArray } from 'drizzle-orm';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 
 import { db } from '@/db';
 import { users, userRoles } from '@/db/schema/users';
 import { roles } from '@/db/schema/roles';
+import { SECURITY } from '@/lib/constants';
 
 // ============================================================
 // TYPES
@@ -262,9 +263,9 @@ export async function createUser(data: CreateUserData): Promise<UserWithRoles> {
     throw new Error('Minimal 1 role harus dipilih');
   }
 
-  // Validation: password min 8 chars
-  if (!password || password.length < 8) {
-    throw new Error('Password minimal 8 karakter');
+  // Validation: password min length
+  if (!password || password.length < SECURITY.PASSWORD_MIN_LENGTH) {
+    throw new Error(`Password minimal ${SECURITY.PASSWORD_MIN_LENGTH} karakter`);
   }
 
   // Validation: roleIds exist in database
@@ -278,7 +279,7 @@ export async function createUser(data: CreateUserData): Promise<UserWithRoles> {
   }
 
   // Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await bcrypt.hash(password, SECURITY.BCRYPT_SALT_ROUNDS);
 
   // Insert user
   const [created] = await db
@@ -290,6 +291,7 @@ export async function createUser(data: CreateUserData): Promise<UserWithRoles> {
       phone: phone || null,
       address: address || null,
       isActive: true,
+      emailVerifiedAt: new Date(), // Admin-created users are pre-verified
     })
     .returning();
 

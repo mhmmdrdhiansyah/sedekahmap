@@ -1,9 +1,9 @@
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { db } from '@/db';
 import { users, userRoles } from '@/db/schema/users';
 import { roles } from '@/db/schema/roles';
 import { eq } from 'drizzle-orm';
-import { ROLES } from '@/lib/constants';
+import { ROLES, SECURITY } from '@/lib/constants';
 
 export interface RegisterInput {
   name: string;
@@ -50,8 +50,8 @@ export function validateRegisterInput(input: RegisterInput): ValidationError[] {
     errors.push({ message: 'Email tidak valid' });
   }
 
-  if (!input.password || typeof input.password !== 'string' || input.password.length < 6) {
-    errors.push({ message: 'Password harus minimal 6 karakter' });
+  if (!input.password || typeof input.password !== 'string' || input.password.length < SECURITY.PASSWORD_MIN_LENGTH) {
+    errors.push({ message: `Password harus minimal ${SECURITY.PASSWORD_MIN_LENGTH} karakter` });
   }
 
   if (input.phone !== undefined && typeof input.phone !== 'string') {
@@ -99,7 +99,7 @@ export async function registerUser(input: RegisterInput): Promise<RegisterOutput
     }
 
     // 4. Hash password
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, SECURITY.BCRYPT_SALT_ROUNDS);
 
     // 5. Insert user baru
     const [newUser] = await db

@@ -4,6 +4,9 @@ import {
   findUserByEmail,
   getUserRolesAndPermissions,
   verifyPassword,
+  checkAccountLockout,
+  handleFailedLogin,
+  resetLoginAttempts,
 } from '@/services/auth.service';
 
 // ============================================================
@@ -79,25 +82,43 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const user = await findUserByEmail(email);
 
         if (!user) {
+          console.info(`[AUTH] Login attempt with non-existent email: ${email}`);
           throw new Error('Email atau password salah.');
         }
 
         // 3. Cek apakah user aktif
         if (!user.isActive) {
+          console.info(`[AUTH] Login attempt with inactive account: ${email}`);
           throw new Error('Akun Anda telah dinonaktifkan.');
         }
 
-        // 4. Verifikasi password dengan bcrypt
+        // 4. Cek account lockout
+        await checkAccountLockout(user);
+
+        // 5. Verifikasi password dengan bcrypt
         const isPasswordValid = await verifyPassword(password, user.password);
         if (!isPasswordValid) {
+          // Increment failed login counter
+          await handleFailedLogin(user.id);
           throw new Error('Email atau password salah.');
         }
 
-        // 5. Ambil roles & permissions dari database
+        // 6. Cek email verification (untuk user yang register sendiri, bukan admin-created)
+        if (!user.emailVerifiedAt) {
+          console.info(`[AUTH] Login attempt without email verification: ${email}`);
+          throw new Error('EMAIL_NOT_VERIFIED:Email belum diverifikasi. Silakan cek email Anda atau minta reset password.');
+        }
+
+        // 7. Reset login attempts pada login sukses
+        await resetLoginAttempts(user.id);
+
+        // 8. Ambil roles & permissions dari database
         const { roles: userRoleNames, permissions: userPermissions } =
           await getUserRolesAndPermissions(user.id);
 
-        // 6. Return user object — data ini akan masuk ke JWT callback
+        console.info(`[AUTH] Login successful: ${email}, roles=${userRoleNames?.join(',') || 'none'}`);
+
+        // 9. Return user object — data ini akan masuk ke JWT callback
         return {
           id: user.id,
           name: user.name,
