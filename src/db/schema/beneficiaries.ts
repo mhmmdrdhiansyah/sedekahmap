@@ -7,6 +7,7 @@ import {
   doublePrecision,
   timestamp,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { users } from './users';
@@ -15,6 +16,8 @@ import { users } from './users';
 // ENUM: beneficiary_status
 // ============================================================
 export const beneficiaryStatusEnum = pgEnum('beneficiary_status', [
+  'pending',      // Menunggu approval admin
+  'rejected',     // Ditolak admin
   'verified',     // Terverifikasi, tampil di peta
   'in_progress',  // Sedang dalam proses penyaluran
   'completed',    // Sudah menerima bantuan
@@ -27,6 +30,7 @@ export const beneficiaryStatusEnum = pgEnum('beneficiary_status', [
 export const beneficiaries = pgTable('beneficiaries', {
   id: uuid('id').defaultRandom().primaryKey(),
   nik: text('nik').notNull(),            // ENCRYPTED — gunakan encrypt di application layer
+  nikHash: varchar('nik_hash', { length: 64 }).notNull(), // SHA-256 hash untuk uniqueness check
   name: varchar('name', { length: 255 }).notNull(),
   address: text('address').notNull(),
   needs: text('needs').notNull(),         // Deskripsi kebutuhan (sembako, obat, dll)
@@ -40,14 +44,28 @@ export const beneficiaries = pgTable('beneficiaries', {
   verifiedById: uuid('verified_by_id'),  // FK ke users.id (verifikator)
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   expiresAt: timestamp('expires_at', { withTimezone: true }), // Auto 6 bulan dari verifiedAt
+  // Approval workflow columns
+  createdById: uuid('created_by_id'),  // FK ke users.id (verifikator yang input)
+  approvedById: uuid('approved_by_id'),  // FK ke users.id (admin yang approve)
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  rejectedById: uuid('rejected_by_id'),  // FK ke users.id (admin yang reject)
+  rejectedAt: timestamp('rejected_at', { withTimezone: true }),
+  rejectionReason: text('rejection_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  // Soft delete columns
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedById: uuid('deleted_by_id'),  // FK ke users.id (user yang menghapus)
 }, (table) => [
   index('idx_beneficiaries_region_code').on(table.regionCode),
   index('idx_beneficiaries_status').on(table.status),
   index('idx_beneficiaries_verified_by_id').on(table.verifiedById),
+  index('idx_beneficiaries_created_by_id').on(table.createdById),
+  index('idx_beneficiaries_approved_by_id').on(table.approvedById),
+  index('idx_beneficiaries_deleted_at').on(table.deletedAt),
   index('idx_beneficiaries_expires_at').on(table.expiresAt),
   index('idx_beneficiaries_lat_lng').on(table.latitude, table.longitude),
+  uniqueIndex('idx_beneficiaries_nik_hash').on(table.nikHash),
 ]);
 
 // ============================================================
@@ -56,6 +74,22 @@ export const beneficiaries = pgTable('beneficiaries', {
 export const beneficiariesRelations = relations(beneficiaries, ({ one }) => ({
   verifiedBy: one(users, {
     fields: [beneficiaries.verifiedById],
+    references: [users.id],
+  }),
+  createdBy: one(users, {
+    fields: [beneficiaries.createdById],
+    references: [users.id],
+  }),
+  approvedBy: one(users, {
+    fields: [beneficiaries.approvedById],
+    references: [users.id],
+  }),
+  rejectedBy: one(users, {
+    fields: [beneficiaries.rejectedById],
+    references: [users.id],
+  }),
+  deletedBy: one(users, {
+    fields: [beneficiaries.deletedById],
     references: [users.id],
   }),
 }));
