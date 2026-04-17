@@ -4,7 +4,7 @@ import { ROLES } from '@/lib/constants';
 import {
   getBeneficiaryById,
   updateBeneficiary,
-  deleteBeneficiary,
+  softDeleteBeneficiary,
 } from '@/services/beneficiary.service';
 
 // ============================================================
@@ -146,7 +146,7 @@ export async function PUT(
 
 // ============================================================
 // DELETE /api/verifikator/beneficiaries/[id]
-// Delete a beneficiary (with ownership check)
+// Soft delete a beneficiary (with ownership check)
 // ============================================================
 export async function DELETE(
   request: NextRequest,
@@ -165,11 +165,11 @@ export async function DELETE(
       );
     }
 
-    // Delete beneficiary
-    await deleteBeneficiary(id);
+    // Soft delete beneficiary
+    await softDeleteBeneficiary(id, user.id);
 
     return NextResponse.json(
-      { success: true, message: 'Data berhasil dihapus' },
+      { success: true, message: 'Data berhasil diarsipkan' },
       { status: 200 }
     );
   } catch (error) {
@@ -199,7 +199,7 @@ export async function DELETE(
     }
 
     return NextResponse.json(
-      { error: 'Gagal menghapus data penerima manfaat' },
+      { error: 'Gagal mengarsipkan data penerima manfaat' },
       { status: 500 }
     );
   }

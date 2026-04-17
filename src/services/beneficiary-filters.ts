@@ -6,6 +6,7 @@ import type { SQL } from 'drizzle-orm';
  * Filter condition untuk beneficiary yang aktif dan verified.
  * - status = 'verified'
  * - DAN (expiresAt IS NULL ATAU expiresAt > NOW())
+ * - DAN deletedAt IS NULL (not soft deleted)
  */
 export function activeVerifiedBeneficiaryFilter(): SQL {
   return and(
@@ -13,6 +14,7 @@ export function activeVerifiedBeneficiaryFilter(): SQL {
     or(
       isNull(beneficiaries.expiresAt),
       gt(beneficiaries.expiresAt, sql`NOW()`)
-    )
+    ),
+    isNull(beneficiaries.deletedAt)
   )!;
 }
