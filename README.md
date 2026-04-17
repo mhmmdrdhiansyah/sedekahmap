@@ -1,5 +1,7 @@
 # SedekahMap
 
+> Terakhir diperbarui: 18 April 2026
+
 Platform distribusi sedekah tepat sasaran berbasis peta, dengan alur multi-role:
 
 - Verifikator mengelola data penerima bantuan

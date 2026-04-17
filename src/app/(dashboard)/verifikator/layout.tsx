@@ -10,6 +10,7 @@ import DashboardSidebar, { MenuItem } from '@/components/layout/DashboardSidebar
 const VERIFIKATOR_MENU: MenuItem[] = [
   { label: 'Dashboard', path: '/verifikator', icon: 'home' },
   { label: 'Input Data', path: '/verifikator/input', icon: 'plus' },
+  { label: 'Impor CSV', path: '/verifikator/import', icon: 'upload' },
   { label: 'Data Saya', path: '/verifikator/data-saya', icon: 'list' },
   { label: 'Profile', path: '/verifikator/profile', icon: 'user' },
 ];

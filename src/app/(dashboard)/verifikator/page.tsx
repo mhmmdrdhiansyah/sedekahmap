@@ -1,9 +1,9 @@
-import { count, eq, desc } from 'drizzle-orm';
-
 import { getCurrentUser } from '@/lib/auth-utils';
 import { STATUS } from '@/lib/constants';
-import { db } from '@/db';
-import { beneficiaries } from '@/db/schema/beneficiaries';
+import {
+  getVerifikatorDashboardStats,
+  getRecentBeneficiariesByVerifikator,
+} from '@/services/beneficiary.service';
 
 // ============================================================
 // TYPES
@@ -28,6 +28,8 @@ interface RecentBeneficiary {
 // ============================================================
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
+    pending: 'bg-gray-100 text-gray-700',
+    rejected: 'bg-red-100 text-red-700',
     verified: 'bg-green-100 text-green-700',
     in_progress: 'bg-yellow-100 text-yellow-700',
     completed: 'bg-blue-100 text-blue-700',
@@ -35,6 +37,8 @@ function StatusBadge({ status }: { status: string }) {
   };
 
   const labels: Record<string, string> = {
+    pending: 'Menunggu Approval',
+    rejected: 'Ditolak',
     verified: 'Terverifikasi',
     in_progress: 'Dalam Proses',
     completed: 'Selesai',
@@ -99,39 +103,11 @@ export default async function VerifikatorDashboardPage() {
     return null;
   }
 
-  // Fetch dashboard statistics
-  const statsResult = await db
-    .select({
-      total: count(),
-      verified: count(eq(beneficiaries.status, STATUS.BENEFICIARY.VERIFIED)),
-      inProgress: count(eq(beneficiaries.status, STATUS.BENEFICIARY.IN_PROGRESS)),
-      completed: count(eq(beneficiaries.status, STATUS.BENEFICIARY.COMPLETED)),
-    })
-    .from(beneficiaries)
-    .where(eq(beneficiaries.verifiedById, user.id));
+  // Fetch dashboard statistics using service layer
+  const stats = await getVerifikatorDashboardStats(user.id);
 
-  const stats: DashboardStats = statsResult[0] ?? {
-    total: 0,
-    verified: 0,
-    inProgress: 0,
-    completed: 0,
-  };
-
-  // Fetch recent beneficiaries (limit 5)
-  const recentDataResult = await db
-    .select({
-      name: beneficiaries.name,
-      address: beneficiaries.address,
-      needs: beneficiaries.needs,
-      status: beneficiaries.status,
-      createdAt: beneficiaries.createdAt,
-    })
-    .from(beneficiaries)
-    .where(eq(beneficiaries.verifiedById, user.id))
-    .orderBy(desc(beneficiaries.createdAt))
-    .limit(5);
-
-  const recentData: RecentBeneficiary[] = recentDataResult;
+  // Fetch recent beneficiaries using service layer
+  const recentData = await getRecentBeneficiariesByVerifikator(user.id, 5);
 
   // ============================================================
   // RENDER

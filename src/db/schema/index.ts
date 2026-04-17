@@ -13,3 +13,4 @@ export * from './villageCoordinates';
 export * from './emailVerificationTokens';
 export * from './passwordResetTokens';
 export * from './authRateLimits';
+export * from './auditLogs';
