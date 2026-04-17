@@ -46,6 +46,8 @@ export const PERMISSIONS = {
   BENEFICIARY_READ: 'beneficiary:read',
   BENEFICIARY_UPDATE: 'beneficiary:update',
   BENEFICIARY_DELETE: 'beneficiary:delete',
+  BENEFICIARY_APPROVE: 'beneficiary:approve',
+  BENEFICIARY_REJECT: 'beneficiary:reject',
 
   // Access Request
   ACCESS_REQUEST_CREATE: 'access_request:create',
@@ -72,6 +74,8 @@ export const PERMISSIONS = {
 
 export const STATUS = {
   BENEFICIARY: {
+    PENDING: 'pending',
+    REJECTED: 'rejected',
     VERIFIED: 'verified',
     IN_PROGRESS: 'in_progress',
     COMPLETED: 'completed',

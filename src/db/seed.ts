@@ -34,6 +34,8 @@ const PERMISSIONS = [
   { name: 'beneficiary:read', description: 'Lihat data target sedekah', module: 'beneficiary' },
   { name: 'beneficiary:update', description: 'Edit data target sedekah', module: 'beneficiary' },
   { name: 'beneficiary:delete', description: 'Hapus data target sedekah', module: 'beneficiary' },
+  { name: 'beneficiary:approve', description: 'Setujui data penerima manfaat', module: 'beneficiary' },
+  { name: 'beneficiary:reject', description: 'Tolak data penerima manfaat', module: 'beneficiary' },
 
   // Modul: access_request
   { name: 'access_request:create', description: 'Buat request akses data', module: 'access_request' },

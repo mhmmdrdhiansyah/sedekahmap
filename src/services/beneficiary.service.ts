@@ -1,9 +1,13 @@
 import { db } from '@/db';
 import { beneficiaries } from '@/db/schema/beneficiaries';
 import { distributions } from '@/db/schema/distributions';
-import { eq, count, avg, sql, like, and, desc, ne, lt, isNotNull } from 'drizzle-orm';
+import { eq, count, avg, sql, like, and, desc, ne, lt, isNotNull, isNull } from 'drizzle-orm';
 import { STATUS } from '@/lib/constants';
 import { activeVerifiedBeneficiaryFilter } from './beneficiary-filters';
+import { encrypt, decrypt, hashNIK } from '@/lib/crypto';
+import { createAuditLog } from './audit.service';
+import type { ParsedBeneficiaryRow } from '@/lib/csv-parser';
+import { randomUUID } from 'crypto';
 
 export interface RegionSummary {
   regionCode: string;
@@ -220,33 +224,39 @@ export interface UpdateBeneficiaryInput {
 
 /**
  * createBeneficiary - Create new beneficiary with NIK uniqueness check
+ * Status default: 'pending' - requires admin approval
  * @throws Error if NIK already exists
  */
 export async function createBeneficiary(
   data: CreateBeneficiaryInput,
   verifikatorId: string
 ): Promise<BeneficiaryItem> {
-  // Check NIK uniqueness
+  // Encrypt NIK and generate hash for uniqueness check
+  const encryptedNIK = encrypt(data.nik);
+  const nikHash = hashNIK(data.nik);
+
+  // Check NIK uniqueness using hash
   const [existing] = await db
     .select({ id: beneficiaries.id })
     .from(beneficiaries)
-    .where(eq(beneficiaries.nik, data.nik))
+    .where(eq(beneficiaries.nikHash, nikHash))
     .limit(1);
 
   if (existing) {
     throw new Error('NIK sudah terdaftar');
   }
 
-  // Calculate expiresAt (6 months from now)
+  // Calculate expiresAt (6 months from now - will be set on approval)
   const now = new Date();
   const expiresAt = new Date(now);
   expiresAt.setMonth(expiresAt.getMonth() + 6);
 
-  // Insert new beneficiary
+  // Insert new beneficiary with pending status
   const [result] = await db
     .insert(beneficiaries)
     .values({
-      nik: data.nik,
+      nik: encryptedNIK,
+      nikHash,
       name: data.name,
       address: data.address,
       needs: data.needs,
@@ -255,14 +265,26 @@ export async function createBeneficiary(
       regionCode: data.regionCode,
       regionName: data.regionName ?? null,
       regionPath: data.regionPath ?? null,
-      status: 'verified',
-      verifiedById: verifikatorId,
-      verifiedAt: now,
-      expiresAt,
+      status: 'pending', // Requires admin approval
+      createdById: verifikatorId,
       createdAt: now,
       updatedAt: now,
     })
     .returning();
+
+  // Create audit log (without NIK)
+  await createAuditLog({
+    userId: verifikatorId,
+    action: 'CREATE',
+    tableName: 'beneficiaries',
+    recordId: result.id,
+    newValues: {
+      name: data.name,
+      status: 'pending',
+      address: data.address,
+      needs: data.needs,
+    },
+  });
 
   return result as BeneficiaryItem;
 }
@@ -307,11 +329,74 @@ export async function getBeneficiariesByVerifikator(
     .where(eq(beneficiaries.verifiedById, verifikatorId))
     .orderBy(desc(beneficiaries.createdAt));
 
-  // Mask names for privacy
+  // Mask names for privacy and decrypt NIK
   return results.map((item) => ({
     ...item,
     name: maskName(item.name),
+    nik: decrypt(item.nik),
   })) as BeneficiaryItem[];
+}
+
+/**
+ * getVerifikatorDashboardStats - Get dashboard statistics for a verifikator
+ * Returns counts by status: total, pending, verified, inProgress, completed
+ */
+export async function getVerifikatorDashboardStats(
+  verifikatorId: string
+): Promise<{
+  total: number;
+  pending: number;
+  verified: number;
+  inProgress: number;
+  completed: number;
+}> {
+  const stats = await db
+    .select({
+      status: beneficiaries.status,
+      count: count(),
+    })
+    .from(beneficiaries)
+    .where(eq(beneficiaries.verifiedById, verifikatorId))
+    .groupBy(beneficiaries.status);
+
+  const total = stats.reduce((sum, s) => sum + s.count, 0);
+  const pending = stats.find((s) => s.status === 'pending')?.count ?? 0;
+  const verified = stats.find((s) => s.status === 'verified')?.count ?? 0;
+  const inProgress = stats.find((s) => s.status === 'in_progress')?.count ?? 0;
+  const completed = stats.find((s) => s.status === 'completed')?.count ?? 0;
+
+  return { total, pending, verified, inProgress, completed };
+}
+
+/**
+ * getRecentBeneficiariesByVerifikator - Get recent beneficiaries for a verifikator
+ */
+export async function getRecentBeneficiariesByVerifikator(
+  verifikatorId: string,
+  limit = 5
+): Promise<
+  Array<{
+    name: string;
+    address: string;
+    needs: string;
+    status: string;
+    createdAt: Date;
+  }>
+> {
+  const results = await db
+    .select({
+      name: beneficiaries.name,
+      address: beneficiaries.address,
+      needs: beneficiaries.needs,
+      status: beneficiaries.status,
+      createdAt: beneficiaries.createdAt,
+    })
+    .from(beneficiaries)
+    .where(eq(beneficiaries.verifiedById, verifikatorId))
+    .orderBy(desc(beneficiaries.createdAt))
+    .limit(limit);
+
+  return results;
 }
 
 /**
@@ -329,7 +414,11 @@ export async function getBeneficiaryById(id: string): Promise<BeneficiaryItem> {
     throw new Error('Data penerima manfaat tidak ditemukan');
   }
 
-  return result as BeneficiaryItem;
+  // Decrypt NIK before returning
+  return {
+    ...result,
+    nik: decrypt(result.nik),
+  } as BeneficiaryItem;
 }
 
 /**
@@ -370,6 +459,79 @@ export async function updateBeneficiary(
  * deleteBeneficiary - Hard delete a beneficiary
  * @throws Error if beneficiary not found
  */
+/**
+ * softDeleteBeneficiary - Soft delete a beneficiary
+ * Sets deletedAt and deletedById instead of permanently deleting
+ */
+export async function softDeleteBeneficiary(
+  id: string,
+  userId: string
+): Promise<{ success: boolean }> {
+  const beneficiary = await getBeneficiaryById(id);
+
+  const [deleted] = await db
+    .update(beneficiaries)
+    .set({
+      deletedAt: new Date(),
+      deletedById: userId,
+      updatedAt: new Date(),
+    })
+    .where(eq(beneficiaries.id, id))
+    .returning();
+
+  if (!deleted) {
+    throw new Error('Data penerima manfaat tidak ditemukan');
+  }
+
+  // Create audit log
+  await createAuditLog({
+    userId,
+    action: 'SOFT_DELETE',
+    tableName: 'beneficiaries',
+    recordId: id,
+    oldValues: { name: beneficiary.name },
+  });
+
+  return { success: true };
+}
+
+/**
+ * restoreBeneficiary - Restore a soft-deleted beneficiary
+ */
+export async function restoreBeneficiary(
+  id: string,
+  adminId: string
+): Promise<BeneficiaryItem> {
+  const [restored] = await db
+    .update(beneficiaries)
+    .set({
+      deletedAt: null,
+      deletedById: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(beneficiaries.id, id))
+    .returning();
+
+  if (!restored) {
+    throw new Error('Data penerima manfaat tidak ditemukan');
+  }
+
+  // Create audit log
+  await createAuditLog({
+    userId: adminId,
+    action: 'RESTORE',
+    tableName: 'beneficiaries',
+    recordId: id,
+    newValues: { name: restored.name },
+  });
+
+  return restored as BeneficiaryItem;
+}
+
+/**
+ * deleteBeneficiary - Hard delete a beneficiary (deprecated, use softDeleteBeneficiary)
+ * @deprecated Use softDeleteBeneficiary instead
+ */
 export async function deleteBeneficiary(id: string): Promise<{ success: boolean }> {
   // Check existence first
   await getBeneficiaryById(id);
@@ -377,6 +539,104 @@ export async function deleteBeneficiary(id: string): Promise<{ success: boolean 
   await db.delete(beneficiaries).where(eq(beneficiaries.id, id));
 
   return { success: true };
+}
+
+// ============================================================
+// APPROVAL WORKFLOW FUNCTIONS
+// ============================================================
+
+/**
+ * getPendingBeneficiaries - Get all beneficiaries with pending status
+ */
+export async function getPendingBeneficiaries(): Promise<BeneficiaryItem[]> {
+  const results = await db
+    .select()
+    .from(beneficiaries)
+    .where(eq(beneficiaries.status, 'pending'))
+    .orderBy(desc(beneficiaries.createdAt));
+
+  return results as BeneficiaryItem[];
+}
+
+/**
+ * approveBeneficiary - Approve a pending beneficiary
+ * Sets status to 'verified' and calculates expiresAt
+ */
+export async function approveBeneficiary(
+  id: string,
+  adminId: string
+): Promise<BeneficiaryItem> {
+  const now = new Date();
+  const expiresAt = new Date(now);
+  expiresAt.setMonth(expiresAt.getMonth() + 6);
+
+  const [updated] = await db
+    .update(beneficiaries)
+    .set({
+      status: 'verified',
+      approvedById: adminId,
+      approvedAt: now,
+      verifiedById: adminId,
+      verifiedAt: now,
+      expiresAt,
+      updatedAt: now,
+    })
+    .where(eq(beneficiaries.id, id))
+    .returning();
+
+  if (!updated) {
+    throw new Error('Data penerima manfaat tidak ditemukan');
+  }
+
+  // Create audit log
+  await createAuditLog({
+    userId: adminId,
+    action: 'APPROVE',
+    tableName: 'beneficiaries',
+    recordId: id,
+    oldValues: { status: 'pending' },
+    newValues: { status: 'verified', approvedAt: now },
+  });
+
+  return updated as BeneficiaryItem;
+}
+
+/**
+ * rejectBeneficiary - Reject a pending beneficiary
+ * Sets status to 'rejected' with reason
+ */
+export async function rejectBeneficiary(
+  id: string,
+  adminId: string,
+  reason: string
+): Promise<BeneficiaryItem> {
+  const [updated] = await db
+    .update(beneficiaries)
+    .set({
+      status: 'rejected',
+      rejectedById: adminId,
+      rejectedAt: new Date(),
+      rejectionReason: reason,
+      updatedAt: new Date(),
+    })
+    .where(eq(beneficiaries.id, id))
+    .returning();
+
+  if (!updated) {
+    throw new Error('Data penerima manfaat tidak ditemukan');
+  }
+
+  // Create audit log
+  await createAuditLog({
+    userId: adminId,
+    action: 'REJECT',
+    tableName: 'beneficiaries',
+    recordId: id,
+    oldValues: { status: 'pending' },
+    newValues: { status: 'rejected', reason },
+  });
+
+  return updated as BeneficiaryItem;
 }
 
 // ============================================================
@@ -467,4 +727,79 @@ export async function getExpiredBeneficiaryStats(): Promise<ExpiredBeneficiarySt
     expiringSoonCount: expiringSoonRow.total,
     verifiedActiveCount: activeRow.total,
   };
+}
+
+// ============================================================
+// BULK IMPORT FUNCTIONS
+// ============================================================
+
+export interface BulkImportResult {
+  success: number;
+  failed: number;
+  errors: Array<{ row: number; message: string }>;
+}
+
+/**
+ * bulkImportBeneficiaries - Import multiple beneficiaries from parsed CSV
+ * Skips duplicates and continues on errors
+ */
+export async function bulkImportBeneficiaries(
+  rows: ParsedBeneficiaryRow[],
+  verifikatorId: string
+): Promise<BulkImportResult> {
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [] as Array<{ row: number; message: string }>,
+  };
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const encryptedNIK = encrypt(row.nik);
+      const nikHash = hashNIK(row.nik);
+
+      // Check duplicate
+      const existing = await db
+        .select()
+        .from(beneficiaries)
+        .where(eq(beneficiaries.nikHash, nikHash))
+        .limit(1);
+
+      if (existing.length > 0) {
+        results.failed++;
+        results.errors.push({ row: i + 1, message: 'NIK sudah terdaftar' });
+        continue;
+      }
+
+      // Insert
+      await db.insert(beneficiaries).values({
+        id: randomUUID(),
+        nik: encryptedNIK,
+        nikHash,
+        name: row.nama,
+        address: row.alamat,
+        needs: row.kebutuhan,
+        latitude: parseFloat(row.latitude),
+        longitude: parseFloat(row.longitude),
+        regionCode: row.kodeWilayah,
+        regionName: row.namaWilayah || null,
+        regionPath: row.jalurWilayah || null,
+        status: 'pending',
+        createdById: verifikatorId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      results.success++;
+    } catch (error) {
+      results.failed++;
+      results.errors.push({
+        row: i + 1,
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  return results;
 }
